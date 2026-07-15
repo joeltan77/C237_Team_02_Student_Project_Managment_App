@@ -1,0 +1,106 @@
+<%
+    const sidebarRole =
+        typeof currentProjectRole !== "undefined"
+            ? currentProjectRole
+            : null;
+
+    const hasSelectedProject =
+        typeof selectedProject !== "undefined" &&
+        selectedProject;
+%>
+
+<nav
+    id="sidebarMenu"
+    class="col-md-3 col-lg-2 d-md-block bg-dark collapse"
+>
+    <div class="position-sticky pt-3 sidebar-height">
+
+        <ul class="nav flex-column">
+
+            <li class="nav-item">
+                <a class="nav-link text-white" href="/projects">
+                    Select Project
+                </a>
+            </li>
+
+            <% if (hasSelectedProject) { %>
+
+                <li class="nav-item">
+                    <a class="nav-link text-white" href="/dashboard">
+                        Dashboard
+                    </a>
+                </li>
+
+                <li class="nav-item">
+                    <a class="nav-link text-white" href="/tasks">
+                        Tasks
+                    </a>
+                </li>
+
+                <% if (sidebarRole === "Project Leader") { %>
+                    <li class="nav-item">
+                        <a class="nav-link text-white" href="/addtask">
+                            Add Task
+                        </a>
+                    </li>
+                <% } %>
+
+                <li class="nav-item">
+                    <a class="nav-link text-white" href="/meetings">
+                        Meetings
+                    </a>
+                </li>
+
+                <% if (sidebarRole === "Project Leader") { %>
+                    <li class="nav-item">
+                        <a class="nav-link text-white" href="/meetings/add">
+                            Schedule Meeting
+                        </a>
+                    </li>
+                <% } %>
+
+                <li class="nav-item">
+                    <a class="nav-link text-white" href="/retrospective">
+                        Retrospective Board
+                    </a>
+                </li>
+
+                <% if (sidebarRole === "Project Leader") { %>
+                    <li class="nav-item">
+                        <a class="nav-link text-white" href="/project-members">
+                            Project Members
+                        </a>
+                    </li>
+                <% } %>
+
+            <% } %>
+
+            <li class="nav-item mt-2">
+                <a class="nav-link text-white" href="/profile">
+                    My Profile
+                </a>
+            </li>
+
+            <li class="nav-item">
+                <a
+                    class="nav-link text-white"
+                    href="/profile/change-password"
+                >
+                    Change Password
+                </a>
+            </li>
+
+        </ul>
+
+        <hr class="border-secondary">
+
+        <ul class="nav flex-column">
+            <li class="nav-item">
+                <a class="nav-link text-light" href="/logout">
+                    Logout
+                </a>
+            </li>
+        </ul>
+
+    </div>
+</nav>
