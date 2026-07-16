@@ -13,7 +13,7 @@ const PORT = 3000;
 
 
 // ======================================================
-// DATABASE CONNECTION h
+// DATABASE CONNECTION
 // ======================================================
 
 // Put your new database password in the DB_PASSWORD environment variable,
