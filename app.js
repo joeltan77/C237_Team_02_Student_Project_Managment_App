@@ -3,6 +3,8 @@ const session = require("express-session");
 const flash = require("connect-flash");
 const multer = require("multer");
 const mysql = require("mysql2");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const PORT = 3000;
@@ -50,10 +52,17 @@ app.use((req, res, next) => {
 // =====================================================
 // MULTER CONFIGURATION
 // =====================================================
+const profilePictureDirectory = path.join(__dirname, "resources", "public", "images", "profile-pictures");
+const resourceUploadDirectory = path.join(__dirname, "resources", "public", "uploads", "resources");
+
+// Multer cannot create missing destination folders, so create them at startup.
+fs.mkdirSync(profilePictureDirectory, { recursive: true });
+fs.mkdirSync(resourceUploadDirectory, { recursive: true });
+
 const allowedImageTypes = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
 
 const profileStorage = multer.diskStorage({
-    destination: (req, file, callback) => callback(null, "resources/public/images/profile-pictures"),
+    destination: (req, file, callback) => callback(null, profilePictureDirectory),
     filename: (req, file, callback) => callback(null, "profile-" + Date.now() + "-" + Math.round(Math.random() * 1000000000) + allowedImageTypes[file.mimetype])
 });
 
@@ -75,7 +84,7 @@ const allowedResourceTypes = {
 };
 
 const resourceStorage = multer.diskStorage({
-    destination: (req, file, callback) => callback(null, "resources/public/uploads/resources"),
+    destination: (req, file, callback) => callback(null, resourceUploadDirectory),
     filename: (req, file, callback) => callback(null, Date.now() + "-" + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_"))
 });
 
@@ -531,14 +540,14 @@ app.post("/project-members/:userId/remove", requireLogin, requireSelectedProject
 // =====================================================
 app.get("/tasks", requireLogin, requireSelectedProject, (req, res, next) => {
     const sql = `SELECT t.task_id AS taskId, t.task_name AS taskName, t.description, t.priority, t.status, DATE_FORMAT(t.due_date, '%Y-%m-%d') AS dueDate, COALESCE(u.name, 'Unassigned') AS assignedUserName FROM tasks t LEFT JOIN users u ON t.assigned_user_id = u.user_id WHERE t.project_id = ? ORDER BY t.due_date, t.task_name`;
-    db.query(sql, [res.locals.selectedProject.projectId], (error, projectTasks) => error ? next(error) : res.render("tasklist", { tasks: projectTasks }));
+    db.query(sql, [res.locals.selectedProject.projectId], (error, projectTasks) => error ? next(error) : res.render("tasks", { tasks: projectTasks }));
 });
 
-app.get("/addtask", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+app.get("/addtask", requireLogin, requireSelectedProject, (req, res, next) => {
     getProjectMembers(res.locals.selectedProject.projectId, (error, members) => error ? next(error) : res.render("addtask", { members }));
 });
 
-app.post("/addtask", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+app.post("/addtask", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId, taskName = cleanText(req.body.taskName), description = cleanText(req.body.description);
     const assignedUserId = Number(req.body.assignedUserId), priority = cleanText(req.body.priority), status = cleanText(req.body.status), dueDate = cleanText(req.body.dueDate);
 
@@ -560,7 +569,7 @@ app.get("/tasks/:id", requireLogin, requireSelectedProject, (req, res, next) => 
         if (error) return next(error);
         if (!task) { req.flash("error", "Task not found in the selected project."); return res.redirect("/tasks"); }
 
-        const commentSql = `SELECT c.comment_id AS commentId, c.comment, c.createdAt, u.name AS userName FROM task_comments c INNER JOIN users u ON c.userId = u.user_id WHERE c.taskId = ? ORDER BY c.createdAt DESC`;
+        const commentSql = `SELECT c.comment_id AS commentId, c.comment, c.created_at AS createdAt, u.name AS userName FROM task_comments c INNER JOIN users u ON c.user_id = u.user_id WHERE c.task_id = ? ORDER BY c.created_at DESC`;
         db.query(commentSql, [task.taskId], (commentError, comments) => {
             if (commentError) return next(commentError);
             res.render("taskdetails", { task: task, assignedUser: task.assignedUserId ? { userId: task.assignedUserId, name: task.assignedUserName } : null, comments });
@@ -576,7 +585,7 @@ app.post("/tasks/:id/comment", requireLogin, requireSelectedProject, (req, res, 
         if (taskError) return next(taskError);
         if (!task) { req.flash("error", "Task not found in the selected project."); return res.redirect("/tasks"); }
 
-        db.query(`INSERT INTO task_comments (taskId, userId, comment) VALUES (?, ?, ?)`, [taskId, res.locals.currentUser.userId, comment], insertError => {
+        db.query(`INSERT INTO task_comments (task_id, user_id, comment) VALUES (?, ?, ?)`, [taskId, res.locals.currentUser.userId, comment], insertError => {
             if (insertError) return next(insertError);
             req.flash("success", "Comment added.");
             res.redirect("/tasks/" + taskId);
@@ -584,16 +593,16 @@ app.post("/tasks/:id/comment", requireLogin, requireSelectedProject, (req, res, 
     });
 });
 
-app.get("/tasks/:id/edit", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+app.get("/tasks/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId;
     getTaskById(req.params.id, projectId, (taskError, task) => {
         if (taskError) return next(taskError);
         if (!task) { req.flash("error", "Task not found in the selected project."); return res.redirect("/tasks"); }
-        getProjectMembers(projectId, (memberError, members) => memberError ? next(memberError) : res.render("edittask", { task, members }));
+        getProjectMembers(projectId, (memberError, members) => memberError ? next(memberError) : res.render("editTasks", { task, members }));
     });
 });
 
-app.post("/tasks/:id/edit", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+app.post("/tasks/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId, taskId = Number(req.params.id), taskName = cleanText(req.body.taskName);
     const assignedUserId = Number(req.body.assignedUserId), priority = cleanText(req.body.priority), status = cleanText(req.body.status), dueDate = cleanText(req.body.dueDate), description = cleanText(req.body.description);
 
@@ -798,7 +807,13 @@ app.post("/resources/upload", requireLogin, requireSelectedProject, uploadResour
     const fileType = req.file.originalname.split(".").pop().toLowerCase();
     const values = [projectId, resourceName, description, req.file.filename, fileType, res.locals.currentUser.userId];
     db.query(`INSERT INTO resources (project_id, resource_name, description, file_name, file_type, uploaded_by_user_id, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, NOW())`, values, insertError => {
-        if (insertError) return next(insertError);
+        if (insertError) {
+            fs.unlink(req.file.path, unlinkError => {
+                if (unlinkError && unlinkError.code !== "ENOENT") console.error("Could not remove failed resource upload:", unlinkError.message);
+                next(insertError);
+            });
+            return;
+        }
         addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' uploaded "' + resourceName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Resource uploaded successfully."), res.redirect("/resources")));
     });
 });
@@ -834,7 +849,7 @@ app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, r
     db.query(`SELECT file_name AS fileName FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
         if (error) return next(error);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
-        res.download("resources/public/uploads/resources/" + rows[0].fileName);
+        res.download(path.join(resourceUploadDirectory, rows[0].fileName));
     });
 });
 
@@ -1041,7 +1056,11 @@ app.use((error, req, res, next) => {
         return res.redirect("/profile/edit");
     }
     if (error.message === "Only JPG, PNG and WEBP images are allowed.") { req.flash("error", error.message); return res.redirect("/profile/edit"); }
-    if (error.code === "ER_NO_SUCH_TABLE") return res.status(500).send("A required database table is missing. Run your database setup SQL first.");
+    if (error.code === "ER_NO_SUCH_TABLE") {
+        const tableMatch = String(error.sqlMessage || error.message).match(/Table '[^']+\.([^']+)' doesn't exist/i);
+        const tableName = tableMatch ? tableMatch[1] : "unknown";
+        return res.status(500).send(`Required database table '${tableName}' is missing. Run database_setup.sql, then restart the application.`);
+    }
     if (error.code === "ER_DUP_ENTRY") { req.flash("error", "That value already exists in the database."); return res.redirect(req.get("referer") || "/"); }
     res.status(500).send("An unexpected server error occurred. Check the terminal for details.");
 });

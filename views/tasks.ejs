@@ -1,73 +1,42 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tasks</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="/dashboard">ProjectPulse</a>
-            <div>
-                <span class="text-white me-3"><%= user.name %></span>
-                <a href="/achievements" class="btn btn-outline-warning btn-sm me-2">Achievements</a>
-                <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+<body class="bg-light">
+    <%- include("partials/navbar") %>
+    <div class="container-fluid"><div class="row">
+        <%- include("partials/sidebar") %>
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
+            <%- include("partials/messages") %>
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div><h1 class="h2 mb-1">Tasks</h1><p class="text-muted mb-0"><%= selectedProject.projectName %></p></div>
+                <a href="/addtask" class="btn btn-primary">Create Task</a>
             </div>
-        </div>
-    </nav>
-
-    <div class="container mt-4">
-        <div class="d-flex justify-content-between">
-            <h2>Tasks</h2>
-            <a href="/tasks/create" class="btn btn-primary">New Task</a>
-        </div>
-
-        <% if (messages && messages.success) { %>
-            <div class="alert alert-success"><%= messages.success %></div>
-        <% } %>
-        <% if (messages && messages.error) { %>
-            <div class="alert alert-danger"><%= messages.error %></div>
-        <% } %>
-
-        <div class="row mt-3">
             <% if (tasks.length === 0) { %>
-                <p class="text-muted">No tasks yet. Create one!</p>
+                <div class="alert alert-info">No tasks have been created for this project.</div>
             <% } else { %>
-                <% tasks.forEach(function(task) { %>
-                    <div class="col-md-6 mb-3">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5><%= task.title %></h5>
-                                <p><%= task.description || 'No description' %></p>
-                                
-                                <div>
-                                    <span class="badge bg-<%= task.priority === 'High' ? 'danger' : task.priority === 'Medium' ? 'warning' : 'info' %>">
-                                        <%= task.priority %>
-                                    </span>
-                                    <span class="badge bg-<%= task.status === 'Completed' ? 'success' : task.status === 'Overdue' ? 'danger' : task.status === 'In Progress' ? 'warning' : 'secondary' %>">
-                                        <%= task.status %>
-                                    </span>
-                                </div>
-                                
-                                <div class="mt-2">
-                                    <div class="progress">
-                                        <div class="progress-bar" style="width: <%= task.progress %>%">
-                                            <%= task.progress %>%
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <p class="mt-2"><small>Deadline: <%= new Date(task.deadline).toLocaleDateString() %></small></p>
-                                
-                                <a href="/task/<%= task.taskid %>/edit" class="btn btn-warning btn-sm">Edit</a>
-                                <a href="/task/<%= task.taskid %>/delete" class="btn btn-danger btn-sm" onclick="return confirm('Delete this task?')">Delete</a>
-                                <a href="/task/<%= task.taskid %>" class="btn btn-info btn-sm">View</a>
-                            </div>
-                        </div>
-                    </div>
-                <% }); %>
+                <div class="card border-0 shadow-sm"><div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light"><tr><th>Task</th><th>Assigned To</th><th>Priority</th><th>Status</th><th>Due Date</th><th class="text-end">Actions</th></tr></thead>
+                        <tbody><% tasks.forEach(function (task) { %>
+                            <tr>
+                                <td><strong><%= task.taskName %></strong><% if (task.description) { %><div class="small text-muted"><%= task.description %></div><% } %></td>
+                                <td><%= task.assignedUserName %></td><td><%= task.priority %></td><td><%= task.status %></td>
+                                <td><%= new Date(task.dueDate).toLocaleDateString("en-SG") %></td>
+                                <td class="text-end"><a href="/tasks/<%= task.taskId %>" class="btn btn-sm btn-outline-primary">View</a> <a href="/tasks/<%= task.taskId %>/edit" class="btn btn-sm btn-outline-secondary">Edit</a></td>
+                            </tr>
+                        <% }); %></tbody>
+                    </table>
+                </div></div>
             <% } %>
-        </div>
-    </div>
+        </main>
+    </div></div>
+    <%- include("partials/footer") %>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
