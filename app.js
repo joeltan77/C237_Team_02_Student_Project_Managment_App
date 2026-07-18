@@ -59,6 +59,28 @@ const uploadProfilePicture = multer({
     limits: { fileSize: 5 * 1024 * 1024 }
 });
 
+const allowedResourceTypes = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip"
+};
+
+const resourceStorage = multer.diskStorage({
+    destination: (req, file, callback) => callback(null, "resources/public/uploads/resources"),
+    filename: (req, file, callback) => callback(null, Date.now() + "-" + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_"))
+});
+
+const uploadResource = multer({
+    storage: resourceStorage,
+    fileFilter: (req, file, callback) => allowedResourceTypes[file.mimetype] ? callback(null, true) : callback(new Error("That file type is not allowed.")),
+    limits: { fileSize: 20 * 1024 * 1024 }
+});
+
 // =====================================================
 // OPTIONS AND VALIDATION
 // =====================================================
@@ -89,6 +111,11 @@ function getUserById(userId, callback) {
 function getUserByEmail(email, callback) {
     const sql = `SELECT user_id AS userId, username, password, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`;
     db.query(sql, [email], (error, results) => error ? callback(error) : callback(null, results[0] || null));
+}
+
+function getUserByUsername(username, callback) {
+    const sql = `SELECT user_id AS userId FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1`;
+    db.query(sql, [username], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
 function getProjectContext(projectId, userId, callback) {
@@ -169,17 +196,78 @@ app.post("/login", (req, res, next) => {
     });
 });
 
-app.get("/logout", (req, res) => {
-    req.session.userId = req.session.selectedProjectId = null;
-    req.flash("success", "You have been logged out.");
-    res.redirect("/login");
+function checkAuthenticated(req, res, next) {
+    if (req.session.user) {
+        return next();
+    }
+    req.flash('error', 'Please log in to continue.');
+    res.redirect('/login');
+}
+
+function checkNotAuthenticated(req, res, next) {
+    if (req.session.user) {
+        return res.redirect('/dashboard');
+    }
+    next();
+}
+
+function checkLeader(req, res, next) {
+    if (req.session.user && req.session.user.role === 'leader') {
+        return next();
+    }
+    req.flash('error', 'Only team leaders can perform this action.');
+    res.redirect('/dashboard');
+}
+
+// Log the user out.
+app.get('/logout', checkAuthenticated, (req, res) => {
+    req.session.destroy((err) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Unable to log out.');
+        }
+
+        // Redirect the user to the login page.
+        res.redirect('/login');
+    });
+});
+
+// =====================================================
+// REGISTER
+// =====================================================
+app.get("/register", (req, res) => res.locals.currentUser ? res.redirect("/projects") : res.render("register"));
+
+app.post("/register", uploadProfilePicture.single("profilePicture"), (req, res, next) => {
+    const username = cleanText(req.body.username), name = cleanText(req.body.name), email = cleanText(req.body.email).toLowerCase();
+    const password = String(req.body.password || ""), confirmPassword = String(req.body.confirmPassword || "");
+    const contactNumber = cleanText(req.body.contactNumber), diploma = cleanText(req.body.diploma), yearSemester = cleanText(req.body.yearSemester), bio = cleanText(req.body.bio);
+
+    if (!username || !name || !email || !password || !confirmPassword || !diploma || !yearSemester) { req.flash("error", "Please complete every required field."); return res.redirect("/register"); }
+    if (password.length < 8) { req.flash("error", "Your password must contain at least eight characters."); return res.redirect("/register"); }
+    if (password !== confirmPassword) { req.flash("error", "The passwords do not match."); return res.redirect("/register"); }
+
+    getUserByUsername(username, (usernameError, existingUsername) => {
+        if (usernameError) return next(usernameError);
+        if (existingUsername) { req.flash("error", "That username is already taken."); return res.redirect("/register"); }
+
+        getUserByEmail(email, (emailError, existingEmail) => {
+            if (emailError) return next(emailError);
+            if (existingEmail) { req.flash("error", "That email is already registered."); return res.redirect("/register"); }
+
+            const profilePicture = req.file ? "/images/profile-pictures/" + req.file.filename : "/images/profile-pictures/default-profile.svg";
+            const values = [username, password, name, email, contactNumber, diploma, yearSemester, bio, profilePicture];
+
+            db.query(`INSERT INTO users (username, password, name, email, contact_number, diploma, year_semester, bio, profile_picture) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, values, insertError => {
+                if (insertError) return next(insertError);
+                req.flash("success", "Your account has been created. Please log in.");
+                res.redirect("/login");
+            });
+        });
+    });
 });
 
 // =====================================================
 // PROJECT SELECTION & CRUD
-// =====================================================
-// =====================================================
-// 1. GET ALL PROJECTS FOR LOGGED-IN USER
 // =====================================================
 app.get("/projects", requireLogin, function (req, res, next) {
     const userId = res.locals.currentUser.userId;
@@ -187,33 +275,25 @@ app.get("/projects", requireLogin, function (req, res, next) {
 
     db.query(sql, [userId], function (error, userProjects) {
         if (error) {
-            // Handle any error that occurs during the database operation
             return next(error);
         } else {
-            // Send a success response by rendering the page
             res.render("projectselection", { userProjects: userProjects });
         }
     });
 });
 
-// =====================================================
-// 2. HANDLE SELECTING A PROJECT
-// =====================================================
 app.post("/projects/select", requireLogin, function (req, res, next) {
     const projectId = Number(req.body.projectId);
     const userId = res.locals.currentUser.userId;
 
     getProjectContext(projectId, userId, function (error, projectContext) {
         if (error) {
-            // Handle any error that occurs during context retrieval
             return next(error);
         } else {
             if (!projectContext) {
-                // If the user isn't found in this project's membership database
                 req.flash("error", "You are not a member of that project.");
                 return res.redirect("/projects");
             } else {
-                // Save selected project ID to the user's active session
                 req.session.selectedProjectId = projectId;
                 req.flash("success", "Project selected successfully.");
                 res.redirect("/dashboard");
@@ -222,10 +302,6 @@ app.post("/projects/select", requireLogin, function (req, res, next) {
     });
 });
 
-//
-//Add project
-//
-
 //Show project form
 app.get('/addproject', requireLogin, function (req, res) {
     res.render('addproject');
@@ -233,22 +309,16 @@ app.get('/addproject', requireLogin, function (req, res) {
 
 //Submit project
 app.post('/addproject', requireLogin, function (req, res, next) {
-    //Get project's name and desc from form
     const name = req.body.projectName;
     const desc = req.body.description;
-
-    //Get userid from res.locals
     const userId = res.locals.currentUser.userId;
 
-    //Insert new project into db
     const sqlProject = "INSERT INTO projects (project_name, description, endDate, status, created_by_user_id) VALUES (?, ?, ?, 'Active', ?)";
     db.query(sqlProject, [name, desc, req.body.endDate, userId], function (error, result) {
         if (error) {
             return next(error);
         } else {
-            //Get new project ID
             const newProjectId = result.insertId;
-            //Add project creator as project leader 
             const sqlMember = "INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, 'Project Leader')";
             db.query(sqlMember, [newProjectId, userId], function (memberError) {
                 if (memberError) {
@@ -262,25 +332,13 @@ app.post('/addproject', requireLogin, function (req, res, next) {
     });
 });
 
-//
-//Update project
-//
-
-//Show update form
-//Show update form
 app.get('/editproject/:id', requireLogin, function (req, res, next) {
     const projectId = req.params.id;
-
-    // Query to fetch the specific project details by its ID
     const sql = "SELECT project_id AS projectId, project_name AS projectName, description, endDate FROM projects WHERE project_id = ?";
 
     db.query(sql, [projectId], function (error, results) {
         if (error) return next(error);
-
-        // Grab the first project found in the database
         const projectData = results[0];
-
-        // Render the page with that project's data
         res.render("editproject", { project: projectData });
     });
 });
@@ -289,14 +347,13 @@ app.post('/editproject/:id', requireLogin, function (req, res, next) {
     const projectId = req.params.id;
     const name = req.body.projectName;
     const desc = req.body.description;
-    //Insert new project into db
     const sqlProject = "UPDATE projects SET project_name = ?, description = ?, endDate = ? WHERE project_id = ?";
     db.query(sqlProject, [name, desc, req.body.endDate, projectId], function (error, result) {
         if (error) return next(error);
         res.redirect("/projects");
     });
 });
-//Update project status to archived
+
 app.post("/archiveproject/:id", requireLogin, function (req, res, next) {
     const projectId = req.params.id;
     const ArchiveProject = "UPDATE projects SET status = 'Archived' WHERE project_id = ?";
@@ -305,22 +362,20 @@ app.post("/archiveproject/:id", requireLogin, function (req, res, next) {
         res.redirect("/projects");
     });
 });
-//Render archived page
+
 app.get("/archivedprojects", requireLogin, function (req, res, next) {
     const userId = res.locals.currentUser.userId;
     const sql = "SELECT p.project_id AS projectId, p.project_name AS projectName, p.description, p.endDate, p.status, pm.role FROM project_members pm INNER JOIN projects p ON pm.project_id = p.project_id WHERE pm.user_id = ? AND p.status = 'Archived' ORDER BY p.project_name";
 
     db.query(sql, [userId], function (error, userProjects) {
         if (error) {
-            // Handle any error that occurs during the database operation
             return next(error);
         } else {
-            // Send a success response by rendering the page
             res.render("archivedprojects", { userProjects: userProjects });
         }
     });
 });
-//Delete Archived project
+
 app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
     const projectId = req.params.id;
     const DeleteProject = "DELETE FROM projects WHERE project_id = ?";
@@ -329,7 +384,7 @@ app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
         res.redirect("/projects");
     });
 });
-//Restore Archived project
+
 app.post("/restoreproject/:id", requireLogin, function (req, res, next) {
     const projectId = req.params.id;
     const RestoreProject = "UPDATE projects SET status = 'Active' WHERE project_id = ?";
@@ -378,7 +433,7 @@ app.post("/profile/edit", requireLogin, uploadProfilePicture.single("profilePict
     const currentUser = res.locals.currentUser, name = cleanText(req.body.name), email = cleanText(req.body.email).toLowerCase();
     if (!name || !email) { req.flash("error", "Name and email are required."); return res.redirect("/profile/edit"); }
 
-    sidebarUserCheck: getUserByEmail(email, (emailError, existingUser) => {
+    getUserByEmail(email, (emailError, existingUser) => {
         if (emailError) return next(emailError);
         if (existingUser && existingUser.userId !== currentUser.userId) { req.flash("error", "That email is already used by another user."); return res.redirect("/profile/edit"); }
         const pic = req.file ? "/images/profile-pictures/" + req.file.filename : currentUser.profilePicture;
@@ -523,7 +578,28 @@ app.get("/tasks/:id", requireLogin, requireSelectedProject, (req, res, next) => 
     getTaskById(req.params.id, res.locals.selectedProject.projectId, (error, task) => {
         if (error) return next(error);
         if (!task) { req.flash("error", "Task not found in the selected project."); return res.redirect("/tasks"); }
-        res.render("taskdetails", { task: task, assignedUser: task.assignedUserId ? { userId: task.assignedUserId, name: task.assignedUserName } : null });
+
+        const commentSql = `SELECT c.comment_id AS commentId, c.comment, c.createdAt, u.name AS userName FROM task_comments c INNER JOIN users u ON c.userId = u.user_id WHERE c.taskId = ? ORDER BY c.createdAt DESC`;
+        db.query(commentSql, [task.taskId], (commentError, comments) => {
+            if (commentError) return next(commentError);
+            res.render("taskdetails", { task: task, assignedUser: task.assignedUserId ? { userId: task.assignedUserId, name: task.assignedUserName } : null, comments });
+        });
+    });
+});
+
+app.post("/tasks/:id/comment", requireLogin, requireSelectedProject, (req, res, next) => {
+    const taskId = Number(req.params.id), comment = cleanText(req.body.comment);
+    if (!comment) { req.flash("error", "Comment cannot be empty."); return res.redirect("/tasks/" + taskId); }
+
+    getTaskById(taskId, res.locals.selectedProject.projectId, (taskError, task) => {
+        if (taskError) return next(taskError);
+        if (!task) { req.flash("error", "Task not found in the selected project."); return res.redirect("/tasks"); }
+
+        db.query(`INSERT INTO task_comments (taskId, userId, comment) VALUES (?, ?, ?)`, [taskId, res.locals.currentUser.userId, comment], insertError => {
+            if (insertError) return next(insertError);
+            req.flash("success", "Comment added.");
+            res.redirect("/tasks/" + taskId);
+        });
     });
 });
 
@@ -552,6 +628,7 @@ app.post("/tasks/:id/edit", requireLogin, requireSelectedProject, requireProject
             const values = [taskName, description, assignedUserId, priority, status, dueDate, taskId, projectId];
             db.query(`UPDATE tasks SET task_name = ?, description = ?, assigned_user_id = ?, priority = ?, status = ?, due_date = ? WHERE task_id = ? AND project_id = ?`, values, updateError => {
                 if (updateError) return next(updateError);
+                if (status === "Completed") checkAchievements(assignedUserId);
                 addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' updated the task "' + taskName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Task updated successfully."), res.redirect("/tasks/" + taskId)));
             });
         });
@@ -671,6 +748,305 @@ app.post("/retrospective/:id/delete", requireLogin, requireSelectedProject, (req
             if (deleteError) return next(deleteError);
             addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + " deleted a retrospective entry.", activityError => activityError ? next(activityError) : (req.flash("success", "Retrospective entry deleted."), res.redirect("/retrospective")));
         });
+    });
+});
+
+// =====================================================
+// ACHIEVEMENTS
+// =====================================================
+const achievementLabels = {
+    first_task_completed: "First Task Completed",
+    early_finisher: "Early Finisher",
+    no_overdue_tasks: "No Overdue Tasks",
+    team_mvp: "Team MVP"
+};
+
+function grantAchievement(userId, achievementType) {
+    db.query(`SELECT achievement_id FROM achievements WHERE user_id = ? AND achievement_type = ? LIMIT 1`, [userId, achievementType], (error, rows) => {
+        if (error || rows.length > 0) return;
+        db.query(`INSERT INTO achievements (user_id, achievement_type) VALUES (?, ?)`, [userId, achievementType], insertError => {
+            if (insertError) console.error("Achievement insert error:", insertError.message);
+        });
+    });
+}
+
+function checkAchievements(userId) {
+    if (!userId) return;
+
+    db.query(`SELECT COUNT(*) AS count FROM tasks WHERE assigned_user_id = ? AND status = 'Completed'`, [userId], (error, rows) => {
+        if (error) return;
+        const completedCount = Number(rows[0].count || 0);
+        if (completedCount >= 1) grantAchievement(userId, "first_task_completed");
+        if (completedCount >= 5) grantAchievement(userId, "team_mvp");
+    });
+
+    db.query(`SELECT COUNT(*) AS count FROM tasks WHERE assigned_user_id = ? AND status = 'Completed' AND due_date >= CURDATE()`, [userId], (error, rows) => {
+        if (!error && Number(rows[0].count || 0) >= 1) grantAchievement(userId, "early_finisher");
+    });
+
+    db.query(`SELECT COUNT(*) AS totalCount, SUM(CASE WHEN due_date < CURDATE() AND status <> 'Completed' THEN 1 ELSE 0 END) AS overdueCount FROM tasks WHERE assigned_user_id = ?`, [userId], (error, rows) => {
+        if (error) return;
+        const totalCount = Number(rows[0].totalCount || 0), overdueCount = Number(rows[0].overdueCount || 0);
+        if (totalCount > 0 && overdueCount === 0) grantAchievement(userId, "no_overdue_tasks");
+    });
+}
+
+app.get("/achievements", requireLogin, (req, res, next) => {
+    const userId = res.locals.currentUser.userId;
+    db.query(`SELECT achievement_id AS achievementId, achievement_type AS achievementType, earned_at AS earnedAt FROM achievements WHERE user_id = ? ORDER BY earned_at DESC`, [userId], (error, rows) => {
+        if (error) return next(error);
+        const achievements = rows.map(row => ({ ...row, label: achievementLabels[row.achievementType] || row.achievementType }));
+        res.render("achievements", { achievements });
+    });
+});
+
+// =====================================================
+// RESOURCES
+// =====================================================
+app.get("/resources", requireLogin, requireSelectedProject, (req, res, next) => {
+    const sql = `SELECT r.resource_id AS resourceId, r.resource_name AS resourceName, r.description, r.file_name AS fileName, r.file_type AS fileType, DATE_FORMAT(r.uploaded_at, '%Y-%m-%d') AS uploadDate, u.name AS uploadedBy FROM resources r LEFT JOIN users u ON r.uploaded_by_user_id = u.user_id WHERE r.project_id = ? ORDER BY r.uploaded_at DESC`;
+    db.query(sql, [res.locals.selectedProject.projectId], (error, resources) => error ? next(error) : res.render("resources", { resources }));
+});
+
+app.get("/resources/upload", requireLogin, requireSelectedProject, (req, res) => res.render("addresource"));
+
+app.post("/resources/upload", requireLogin, requireSelectedProject, uploadResource.single("resourceFile"), (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId, resourceName = cleanText(req.body.resourceName), description = cleanText(req.body.description);
+    if (!resourceName || !req.file) { req.flash("error", "Resource name and file are required."); return res.redirect("/resources/upload"); }
+
+    const fileType = req.file.originalname.split(".").pop().toLowerCase();
+    const values = [projectId, resourceName, description, req.file.filename, fileType, res.locals.currentUser.userId];
+    db.query(`INSERT INTO resources (project_id, resource_name, description, file_name, file_type, uploaded_by_user_id, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, NOW())`, values, insertError => {
+        if (insertError) return next(insertError);
+        addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' uploaded "' + resourceName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Resource uploaded successfully."), res.redirect("/resources")));
+    });
+});
+
+app.get("/resources/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
+    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
+    db.query(`SELECT resource_id AS resourceId, resource_name AS resourceName, description, file_name AS fileName, file_type AS fileType FROM resources WHERE resource_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
+        if (error) return next(error);
+        if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
+        res.render("editresource", { resource: rows[0] });
+    });
+});
+
+app.post("/resources/:id/edit", requireLogin, requireSelectedProject, uploadResource.single("resourceFile"), (req, res, next) => {
+    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId, resourceName = cleanText(req.body.resourceName), description = cleanText(req.body.description);
+
+    db.query(`SELECT file_name AS fileName, file_type AS fileType FROM resources WHERE resource_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (findError, rows) => {
+        if (findError) return next(findError);
+        if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
+
+        const fileName = req.file ? req.file.filename : rows[0].fileName;
+        const fileType = req.file ? req.file.originalname.split(".").pop().toLowerCase() : rows[0].fileType;
+
+        db.query(`UPDATE resources SET resource_name = ?, description = ?, file_name = ?, file_type = ? WHERE resource_id = ? AND project_id = ?`, [resourceName, description, fileName, fileType, resourceId, projectId], updateError => {
+            if (updateError) return next(updateError);
+            addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' updated resource "' + resourceName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Resource updated successfully."), res.redirect("/resources")));
+        });
+    });
+});
+
+app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, res, next) => {
+    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
+    db.query(`SELECT file_name AS fileName FROM resources WHERE resource_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
+        if (error) return next(error);
+        if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
+        res.download("resources/public/uploads/resources/" + rows[0].fileName);
+    });
+});
+
+app.post("/resources/:id/delete", requireLogin, requireSelectedProject, (req, res, next) => {
+    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
+    db.query(`DELETE FROM resources WHERE resource_id = ? AND project_id = ?`, [resourceId, projectId], deleteError => {
+        if (deleteError) return next(deleteError);
+        addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + " deleted a resource.", activityError => activityError ? next(activityError) : (req.flash("success", "Resource deleted."), res.redirect("/resources")));
+    });
+});
+
+// =====================================================
+// MEETING ATTENDANCE
+// =====================================================
+app.get("/meetings/:id/attendance", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId;
+    getMeetingById(req.params.id, projectId, (meetingError, meeting) => {
+        if (meetingError) return next(meetingError);
+        if (!meeting) { req.flash("error", "Meeting not found in the selected project."); return res.redirect("/meetings"); }
+
+        getProjectMembers(projectId, (memberError, members) => {
+            if (memberError) return next(memberError);
+            db.query(`SELECT user_id AS userId, status FROM attendance WHERE meeting_id = ?`, [meeting.meetingId], (attendanceError, existingRows) => {
+                if (attendanceError) return next(attendanceError);
+                const existingByUser = {};
+                existingRows.forEach(row => { existingByUser[row.userId] = row.status; });
+                const membersWithStatus = members.map(member => ({ ...member, attendanceStatus: existingByUser[member.userId] || "Present" }));
+                res.render("attendance", { meeting, members: membersWithStatus });
+            });
+        });
+    });
+});
+
+app.post("/meetings/:id/attendance", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId;
+    getMeetingById(req.params.id, projectId, (meetingError, meeting) => {
+        if (meetingError) return next(meetingError);
+        if (!meeting) { req.flash("error", "Meeting not found in the selected project."); return res.redirect("/meetings"); }
+
+        getProjectMembers(projectId, (memberError, members) => {
+            if (memberError) return next(memberError);
+
+            const saveNext = index => {
+                if (index >= members.length) { req.flash("success", "Attendance saved."); return res.redirect("/meetings/" + meeting.meetingId); }
+                const member = members[index];
+                const submitted = req.body["attendance_" + member.userId];
+                const status = ["Present", "Late", "Absent"].includes(submitted) ? submitted : "Present";
+                db.query(`INSERT INTO attendance (meeting_id, user_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)`, [meeting.meetingId, member.userId, status], upsertError => upsertError ? next(upsertError) : saveNext(index + 1));
+            };
+            saveNext(0);
+        });
+    });
+});
+
+// =====================================================
+// CALENDAR, TIMELINE, NOTIFICATIONS, REMINDERS
+// =====================================================
+app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
+    const sql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, meeting_date AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location FROM meetings WHERE project_id = ?`;
+    db.query(sql, [res.locals.selectedProject.projectId], (error, meetings) => {
+        if (error) return next(error);
+        const events = meetings.map(meeting => ({
+            title: meeting.meetingTitle,
+            start: new Date(meeting.meetingDate).toISOString().slice(0, 10),
+            location: meeting.location || "",
+            time: meeting.meetingTime
+        }));
+        res.render("calendar", { events });
+    });
+});
+
+app.get("/timeline", requireLogin, requireSelectedProject, (req, res, next) => {
+    const sql = `SELECT description, DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 50`;
+    db.query(sql, [res.locals.selectedProject.projectId], (error, activities) => error ? next(error) : res.render("timeline", { activities }));
+});
+
+app.get("/notifications", requireLogin, requireSelectedProject, (req, res, next) => {
+    const sql = `SELECT description, DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 20`;
+    db.query(sql, [res.locals.selectedProject.projectId], (error, rows) => {
+        if (error) return next(error);
+        const notifications = rows.map(row => ({ title: "Project Activity", message: row.description, time: row.time }));
+        res.render("notification", { notifications });
+    });
+});
+
+app.get("/reminders", requireLogin, requireSelectedProject, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId;
+    const taskSql = `SELECT task_name AS taskName, priority, DATE_FORMAT(due_date, '%d %b %Y') AS dueDate FROM tasks WHERE project_id = ? AND status <> 'Completed' AND due_date >= CURDATE() ORDER BY due_date`;
+    db.query(taskSql, [projectId], (taskError, tasks) => {
+        if (taskError) return next(taskError);
+        const meetingSql = `SELECT meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%d %b %Y') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime FROM meetings WHERE project_id = ? AND meeting_date >= CURDATE() ORDER BY meeting_date`;
+        db.query(meetingSql, [projectId], (meetingError, meetings) => {
+            if (meetingError) return next(meetingError);
+            const reminders = tasks.map(task => ({ title: task.taskName, message: "Due " + task.dueDate + " • " + task.priority + " priority", type: "task" }))
+                .concat(meetings.map(meeting => ({ title: meeting.meetingTitle, message: meeting.meetingDate + " at " + meeting.meetingTime, type: "meeting" })));
+            res.render("reminders", { reminders });
+        });
+    });
+});
+
+// =====================================================
+// RISK MANAGEMENT
+// =====================================================
+const riskValues = { Low: 1, Medium: 2, High: 3 };
+const isValidRiskOption = value => ["Low", "Medium", "High"].includes(value);
+const isValidRiskStatus = value => ["Open", "Monitoring", "Resolved"].includes(value);
+
+function calculateRisk(probability, impact) {
+    const riskScore = riskValues[probability] * riskValues[impact];
+    const riskLevel = riskScore <= 2 ? "Low" : riskScore <= 4 ? "Medium" : riskScore <= 6 ? "High" : "Critical";
+    return { riskScore, riskLevel };
+}
+
+app.get("/risks", requireLogin, requireSelectedProject, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId;
+    const sql = `SELECT r.id AS riskId, r.riskTitle, r.description, r.probability, r.impact, r.riskScore, r.riskLevel, r.contingencyPlan, r.status, u.name AS reporterName FROM risks r INNER JOIN users u ON r.reportedBy = u.user_id WHERE r.projectId = ? ORDER BY FIELD(r.riskLevel, 'Critical', 'High', 'Medium', 'Low'), r.createdAt DESC`;
+    db.query(sql, [projectId], (error, risks) => {
+        if (error) return next(error);
+        const summary = { total: risks.length, open: 0, monitoring: 0, resolved: 0, critical: 0 };
+        risks.forEach(risk => {
+            if (risk.status === "Open") summary.open++;
+            if (risk.status === "Monitoring") summary.monitoring++;
+            if (risk.status === "Resolved") summary.resolved++;
+            if (risk.riskLevel === "Critical" && risk.status !== "Resolved") summary.critical++;
+        });
+        res.render("risks", { risks, summary });
+    });
+});
+
+app.get("/risks/add", requireLogin, requireSelectedProject, (req, res) => res.render("addrisk"));
+
+app.post("/risks/add", requireLogin, requireSelectedProject, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId;
+    const riskTitle = cleanText(req.body.riskTitle), description = cleanText(req.body.description);
+    const probability = cleanText(req.body.probability), impact = cleanText(req.body.impact);
+    const contingencyPlan = cleanText(req.body.contingencyPlan), status = cleanText(req.body.status) || "Open";
+
+    if (!riskTitle || !description || !contingencyPlan || !isValidRiskOption(probability) || !isValidRiskOption(impact) || !isValidRiskStatus(status)) {
+        req.flash("error", "Please provide valid risk information.");
+        return res.redirect("/risks/add");
+    }
+
+    const calculated = calculateRisk(probability, impact);
+    const values = [projectId, riskTitle, description, probability, impact, calculated.riskScore, calculated.riskLevel, contingencyPlan, status, res.locals.currentUser.userId];
+    db.query(`INSERT INTO risks (projectId, riskTitle, description, probability, impact, riskScore, riskLevel, contingencyPlan, status, reportedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, values, insertError => {
+        if (insertError) return next(insertError);
+        addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' reported the risk "' + riskTitle + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Risk added successfully."), res.redirect("/risks")));
+    });
+});
+
+app.get("/risks/:riskId/edit", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId, riskId = Number(req.params.riskId);
+    db.query(`SELECT id AS riskId, riskTitle, description, probability, impact, contingencyPlan, status FROM risks WHERE id = ? AND projectId = ? LIMIT 1`, [riskId, projectId], (error, rows) => {
+        if (error) return next(error);
+        if (rows.length === 0) { req.flash("error", "Risk not found in the selected project."); return res.redirect("/risks"); }
+        res.render("editrisk", { risk: rows[0] });
+    });
+});
+
+app.post("/risks/:riskId/edit", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId, riskId = Number(req.params.riskId);
+    const riskTitle = cleanText(req.body.riskTitle), description = cleanText(req.body.description);
+    const probability = cleanText(req.body.probability), impact = cleanText(req.body.impact);
+    const contingencyPlan = cleanText(req.body.contingencyPlan), status = cleanText(req.body.status);
+
+    if (!riskTitle || !description || !contingencyPlan || !isValidRiskOption(probability) || !isValidRiskOption(impact) || !isValidRiskStatus(status)) {
+        req.flash("error", "Please provide valid risk information.");
+        return res.redirect("/risks/" + riskId + "/edit");
+    }
+
+    const calculated = calculateRisk(probability, impact);
+    const values = [riskTitle, description, probability, impact, calculated.riskScore, calculated.riskLevel, contingencyPlan, status, riskId, projectId];
+    db.query(`UPDATE risks SET riskTitle = ?, description = ?, probability = ?, impact = ?, riskScore = ?, riskLevel = ?, contingencyPlan = ?, status = ? WHERE id = ? AND projectId = ?`, values, updateError => {
+        if (updateError) return next(updateError);
+        addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' updated the risk "' + riskTitle + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Risk updated successfully."), res.redirect("/risks")));
+    });
+});
+
+app.post("/risks/:riskId/resolve", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId, riskId = Number(req.params.riskId);
+    db.query(`UPDATE risks SET status = 'Resolved' WHERE id = ? AND projectId = ?`, [riskId, projectId], updateError => {
+        if (updateError) return next(updateError);
+        req.flash("success", "Risk marked as resolved.");
+        res.redirect("/risks");
+    });
+});
+
+app.post("/risks/:riskId/delete", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId, riskId = Number(req.params.riskId);
+    db.query(`DELETE FROM risks WHERE id = ? AND projectId = ?`, [riskId, projectId], deleteError => {
+        if (deleteError) return next(deleteError);
+        req.flash("success", "Risk deleted.");
+        res.redirect("/risks");
     });
 });
 
