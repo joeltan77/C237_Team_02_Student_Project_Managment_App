@@ -3,8 +3,6 @@ const session = require("express-session");
 const flash = require("connect-flash");
 const multer = require("multer");
 const mysql = require("mysql2");
-const fs = require("fs");
-const path = require("path");
 
 const app = express();
 const PORT = 3000;
@@ -52,17 +50,10 @@ app.use((req, res, next) => {
 // =====================================================
 // MULTER CONFIGURATION
 // =====================================================
-const profilePictureDirectory = path.join(__dirname, "resources", "public", "images", "profile-pictures");
-const resourceUploadDirectory = path.join(__dirname, "resources", "public", "uploads", "resources");
-
-// Multer cannot create missing destination folders, so create them at startup.
-fs.mkdirSync(profilePictureDirectory, { recursive: true });
-fs.mkdirSync(resourceUploadDirectory, { recursive: true });
-
 const allowedImageTypes = { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp" };
 
 const profileStorage = multer.diskStorage({
-    destination: (req, file, callback) => callback(null, profilePictureDirectory),
+    destination: "resources/public/images/profile-pictures",
     filename: (req, file, callback) => callback(null, "profile-" + Date.now() + "-" + Math.round(Math.random() * 1000000000) + allowedImageTypes[file.mimetype])
 });
 
@@ -84,7 +75,7 @@ const allowedResourceTypes = {
 };
 
 const resourceStorage = multer.diskStorage({
-    destination: (req, file, callback) => callback(null, resourceUploadDirectory),
+    destination: "resources/public/uploads/resources",
     filename: (req, file, callback) => callback(null, Date.now() + "-" + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_"))
 });
 
@@ -539,7 +530,16 @@ app.post("/project-members/:userId/remove", requireLogin, requireSelectedProject
 // TASKS
 // =====================================================
 app.get("/tasks", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT t.task_id AS taskId, t.task_name AS taskName, t.description, t.priority, t.status, DATE_FORMAT(t.due_date, '%Y-%m-%d') AS dueDate, COALESCE(u.name, 'Unassigned') AS assignedUserName FROM tasks t LEFT JOIN users u ON t.assigned_user_id = u.user_id WHERE t.project_id = ? ORDER BY t.due_date, t.task_name`;
+    const sql = `
+        SELECT t.task_id AS taskId, t.task_name AS taskName, t.description,
+               t.priority, t.status,
+               DATE_FORMAT(t.due_date, '%Y-%m-%d') AS dueDate,
+               COALESCE(u.name, 'Unassigned') AS assignedUserName
+        FROM tasks t
+        LEFT JOIN users u ON t.assigned_user_id = u.user_id
+        WHERE t.project_id = ?
+        ORDER BY t.due_date, t.task_name
+    `;
     db.query(sql, [res.locals.selectedProject.projectId], (error, projectTasks) => error ? next(error) : res.render("tasks", { tasks: projectTasks }));
 });
 
@@ -794,7 +794,16 @@ app.get("/achievements", requireLogin, (req, res, next) => {
 // RESOURCES
 // =====================================================
 app.get("/resources", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT r.resources_id AS resourceId, r.resource_name AS resourceName, r.description, r.file_name AS fileName, r.file_type AS fileType, DATE_FORMAT(r.uploaded_at, '%Y-%m-%d') AS uploadDate, u.name AS uploadedBy FROM resources r LEFT JOIN users u ON r.uploaded_by_user_id = u.user_id WHERE r.project_id = ? ORDER BY r.uploaded_at DESC`;
+    const sql = `
+        SELECT r.resources_id AS resourceId, r.resource_name AS resourceName,
+               r.description, r.file_name AS fileName, r.file_type AS fileType,
+               DATE_FORMAT(r.uploaded_at, '%Y-%m-%d') AS uploadDate,
+               u.name AS uploadedBy
+        FROM resources r
+        LEFT JOIN users u ON r.uploaded_by_user_id = u.user_id
+        WHERE r.project_id = ?
+        ORDER BY r.uploaded_at DESC
+    `;
     db.query(sql, [res.locals.selectedProject.projectId], (error, resources) => error ? next(error) : res.render("resources", { resources }));
 });
 
@@ -805,15 +814,14 @@ app.post("/resources/upload", requireLogin, requireSelectedProject, uploadResour
     if (!resourceName || !req.file) { req.flash("error", "Resource name and file are required."); return res.redirect("/resources/upload"); }
 
     const fileType = req.file.originalname.split(".").pop().toLowerCase();
+    const sql = `
+        INSERT INTO resources
+            (project_id, resource_name, description, file_name, file_type, uploaded_by_user_id, uploaded_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
+    `;
     const values = [projectId, resourceName, description, req.file.filename, fileType, res.locals.currentUser.userId];
-    db.query(`INSERT INTO resources (project_id, resource_name, description, file_name, file_type, uploaded_by_user_id, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, NOW())`, values, insertError => {
-        if (insertError) {
-            fs.unlink(req.file.path, unlinkError => {
-                if (unlinkError && unlinkError.code !== "ENOENT") console.error("Could not remove failed resource upload:", unlinkError.message);
-                next(insertError);
-            });
-            return;
-        }
+    db.query(sql, values, insertError => {
+        if (insertError) return next(insertError);
         addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' uploaded "' + resourceName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Resource uploaded successfully."), res.redirect("/resources")));
     });
 });
@@ -849,7 +857,7 @@ app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, r
     db.query(`SELECT file_name AS fileName FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
         if (error) return next(error);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
-        res.download(path.join(resourceUploadDirectory, rows[0].fileName));
+        res.download("resources/public/uploads/resources/" + rows[0].fileName);
     });
 });
 
@@ -909,11 +917,22 @@ app.post("/meetings/:id/attendance", requireLogin, requireSelectedProject, requi
 // =====================================================
 app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId;
-    const taskSql = `SELECT task_id AS taskId, task_name AS taskName, description, priority, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate FROM tasks WHERE project_id = ?`;
+    const taskSql = `
+        SELECT task_id AS taskId, task_name AS taskName, description,
+               priority, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate
+        FROM tasks
+        WHERE project_id = ?
+    `;
     db.query(taskSql, [projectId], (taskError, tasks) => {
         if (taskError) return next(taskError);
 
-        const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location FROM meetings WHERE project_id = ?`;
+        const meetingSql = `
+            SELECT meeting_id AS meetingId, meeting_title AS meetingTitle,
+                   DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate,
+                   TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location
+            FROM meetings
+            WHERE project_id = ?
+        `;
         db.query(meetingSql, [projectId], (meetingError, meetings) => {
             if (meetingError) return next(meetingError);
 

@@ -7,9 +7,8 @@ ProjectPulse is an Express, EJS and MySQL student project-management application
 1. Open this folder in VS Code.
 2. Open **Terminal > New Terminal**.
 3. Run `npm install`.
-4. Run `database_setup.sql` once in MySQL Workbench or your Azure MySQL query editor.
-5. Run `npm start`.
-6. Open `http://localhost:3000`.
+4. Run `npm start`.
+5. Open `http://localhost:3000`.
 
 The MySQL connection in `app.js` is unchanged.
 
@@ -27,7 +26,6 @@ The MySQL connection in `app.js` is unchanged.
 - `resources/styles.css`: shared stylesheet.
 - `resources/public/`: browser-accessible uploads and images.
 - `package.json` and `package-lock.json`: Node.js dependencies and commands.
-- `database_setup.sql`: creates the task comments table required by task details.
 
 ## Files that appear redundant
 
