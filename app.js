@@ -28,6 +28,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static("resources/public"));
 
+// Support the original stylesheet URLs used by the existing EJS pages.
+app.use(express.static("resources"));
+app.use("/resources", express.static("resources"));
+
 app.use(session({
     secret: "student-project-management-secret",
     resave: false,
@@ -196,31 +200,8 @@ app.post("/login", (req, res, next) => {
     });
 });
 
-function checkAuthenticated(req, res, next) {
-    if (req.session.user) {
-        return next();
-    }
-    req.flash('error', 'Please log in to continue.');
-    res.redirect('/login');
-}
-
-function checkNotAuthenticated(req, res, next) {
-    if (req.session.user) {
-        return res.redirect('/dashboard');
-    }
-    next();
-}
-
-function checkLeader(req, res, next) {
-    if (req.session.user && req.session.user.role === 'leader') {
-        return next();
-    }
-    req.flash('error', 'Only team leaders can perform this action.');
-    res.redirect('/dashboard');
-}
-
 // Log the user out.
-app.get('/logout', checkAuthenticated, (req, res) => {
+app.get('/logout', requireLogin, (req, res) => {
     req.session.destroy((err) => {
         if (err) {
             console.error(err);
