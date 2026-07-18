@@ -908,16 +908,35 @@ app.post("/meetings/:id/attendance", requireLogin, requireSelectedProject, requi
 // CALENDAR, TIMELINE, NOTIFICATIONS, REMINDERS
 // =====================================================
 app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, meeting_date AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location FROM meetings WHERE project_id = ?`;
-    db.query(sql, [res.locals.selectedProject.projectId], (error, meetings) => {
-        if (error) return next(error);
-        const events = meetings.map(meeting => ({
-            title: meeting.meetingTitle,
-            start: new Date(meeting.meetingDate).toISOString().slice(0, 10),
-            location: meeting.location || "",
-            time: meeting.meetingTime
-        }));
-        res.render("calendar", { events });
+    const projectId = res.locals.selectedProject.projectId;
+    const taskSql = `SELECT task_id AS taskId, task_name AS taskName, description, priority, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate FROM tasks WHERE project_id = ?`;
+    db.query(taskSql, [projectId], (taskError, tasks) => {
+        if (taskError) return next(taskError);
+
+        const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location FROM meetings WHERE project_id = ?`;
+        db.query(meetingSql, [projectId], (meetingError, meetings) => {
+            if (meetingError) return next(meetingError);
+
+            const taskEvents = tasks.map(task => ({
+                id: "task-" + task.taskId,
+                title: task.taskName,
+                start: task.dueDate,
+                allDay: true,
+                color: task.status === "Completed" ? "#198754" : task.priority === "High" ? "#dc3545" : task.priority === "Medium" ? "#fd7e14" : "#0d6efd",
+                extendedProps: { type: "task", taskId: task.taskId, description: task.description || "No description", priority: task.priority, status: task.status }
+            }));
+            const meetingEvents = meetings.map(meeting => ({
+                id: "meeting-" + meeting.meetingId,
+                title: meeting.meetingTitle,
+                start: meeting.meetingDate,
+                allDay: true,
+                color: "#6f42c1",
+                extendedProps: { type: "meeting", meetingId: meeting.meetingId, time: meeting.meetingTime, location: meeting.location || "Not specified" }
+            }));
+
+            const calendarEventsJson = JSON.stringify(taskEvents.concat(meetingEvents)).replace(/</g, "\\u003c");
+            res.render("calendar", { calendarEventsJson });
+        });
     });
 });
 
