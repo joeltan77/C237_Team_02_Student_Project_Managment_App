@@ -804,11 +804,11 @@ app.get("/achievements", requireLogin, (req, res, next) => {
 // RESOURCES
 // =====================================================
 app.get("/resources", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT r.resource_id AS resourceId, r.resource_name AS resourceName, r.description, r.file_name AS fileName, r.file_type AS fileType, DATE_FORMAT(r.uploaded_at, '%Y-%m-%d') AS uploadDate, u.name AS uploadedBy FROM resources r LEFT JOIN users u ON r.uploaded_by_user_id = u.user_id WHERE r.project_id = ? ORDER BY r.uploaded_at DESC`;
+    const sql = `SELECT r.resources_id AS resourceId, r.resource_name AS resourceName, r.description, r.file_name AS fileName, r.file_type AS fileType, DATE_FORMAT(r.uploaded_at, '%Y-%m-%d') AS uploadDate, u.name AS uploadedBy FROM resources r LEFT JOIN users u ON r.uploaded_by_user_id = u.user_id WHERE r.project_id = ? ORDER BY r.uploaded_at DESC`;
     db.query(sql, [res.locals.selectedProject.projectId], (error, resources) => error ? next(error) : res.render("resources", { resources }));
 });
 
-app.get("/resources/upload", requireLogin, requireSelectedProject, (req, res) => res.render("addresource"));
+app.get("/resources/upload", requireLogin, requireSelectedProject, (req, res) => res.render("addresources"));
 
 app.post("/resources/upload", requireLogin, requireSelectedProject, uploadResource.single("resourceFile"), (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId, resourceName = cleanText(req.body.resourceName), description = cleanText(req.body.description);
@@ -824,24 +824,24 @@ app.post("/resources/upload", requireLogin, requireSelectedProject, uploadResour
 
 app.get("/resources/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
     const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
-    db.query(`SELECT resource_id AS resourceId, resource_name AS resourceName, description, file_name AS fileName, file_type AS fileType FROM resources WHERE resource_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
+    db.query(`SELECT resources_id AS resourceId, resource_name AS resourceName, description, file_name AS fileName, file_type AS fileType FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
         if (error) return next(error);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
-        res.render("editresource", { resource: rows[0] });
+        res.render("editresources", { resource: rows[0] });
     });
 });
 
 app.post("/resources/:id/edit", requireLogin, requireSelectedProject, uploadResource.single("resourceFile"), (req, res, next) => {
     const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId, resourceName = cleanText(req.body.resourceName), description = cleanText(req.body.description);
 
-    db.query(`SELECT file_name AS fileName, file_type AS fileType FROM resources WHERE resource_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (findError, rows) => {
+    db.query(`SELECT file_name AS fileName, file_type AS fileType FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (findError, rows) => {
         if (findError) return next(findError);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
 
         const fileName = req.file ? req.file.filename : rows[0].fileName;
         const fileType = req.file ? req.file.originalname.split(".").pop().toLowerCase() : rows[0].fileType;
 
-        db.query(`UPDATE resources SET resource_name = ?, description = ?, file_name = ?, file_type = ? WHERE resource_id = ? AND project_id = ?`, [resourceName, description, fileName, fileType, resourceId, projectId], updateError => {
+        db.query(`UPDATE resources SET resource_name = ?, description = ?, file_name = ?, file_type = ? WHERE resources_id = ? AND project_id = ?`, [resourceName, description, fileName, fileType, resourceId, projectId], updateError => {
             if (updateError) return next(updateError);
             addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' updated resource "' + resourceName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Resource updated successfully."), res.redirect("/resources")));
         });
@@ -850,7 +850,7 @@ app.post("/resources/:id/edit", requireLogin, requireSelectedProject, uploadReso
 
 app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, res, next) => {
     const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
-    db.query(`SELECT file_name AS fileName FROM resources WHERE resource_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
+    db.query(`SELECT file_name AS fileName FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
         if (error) return next(error);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
         res.download("resources/public/uploads/resources/" + rows[0].fileName);
@@ -859,7 +859,7 @@ app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, r
 
 app.post("/resources/:id/delete", requireLogin, requireSelectedProject, (req, res, next) => {
     const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
-    db.query(`DELETE FROM resources WHERE resource_id = ? AND project_id = ?`, [resourceId, projectId], deleteError => {
+    db.query(`DELETE FROM resources WHERE resources_id = ? AND project_id = ?`, [resourceId, projectId], deleteError => {
         if (deleteError) return next(deleteError);
         addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + " deleted a resource.", activityError => activityError ? next(activityError) : (req.flash("success", "Resource deleted."), res.redirect("/resources")));
     });
