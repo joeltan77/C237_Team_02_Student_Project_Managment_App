@@ -960,7 +960,15 @@ app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
 });
 
 app.get("/timeline", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT description, DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 50`;
+    // Azure MySQL stores the activity time in UTC, so add 8 hours for Singapore.
+    const sql = `
+        SELECT description,
+               DATE_FORMAT(DATE_ADD(created_at, INTERVAL 8 HOUR), '%d %b %Y, %H:%i SGT') AS time
+        FROM activities
+        WHERE project_id = ?
+        ORDER BY created_at DESC
+        LIMIT 50
+    `;
     db.query(sql, [res.locals.selectedProject.projectId], (error, activities) => error ? next(error) : res.render("timeline", { activities }));
 });
 

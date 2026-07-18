@@ -287,6 +287,41 @@ a {
     font-size: 1.75rem;
 }
 
+/* Profile page: keep uploaded images as small avatars, not full-width photos. */
+.profile-image {
+    display: block;
+    width: 180px;
+    height: 180px;
+    max-width: 100%;
+    margin: 0 auto;
+    object-fit: cover;
+    background: var(--primary-soft);
+}
+
+.profile-image-large {
+    display: block;
+    width: 150px;
+    height: 150px;
+    max-width: 100%;
+    margin: 0 auto;
+    object-fit: cover;
+    background: var(--primary-soft);
+}
+
+.profile-field {
+    height: 100%;
+    padding: 0.9rem 1rem;
+    overflow-wrap: anywhere;
+    background: #f8f9fc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.profile-field .small {
+    display: block;
+    margin-bottom: 0.2rem;
+}
+
 /* =====================================================
    6. BUTTONS
 ===================================================== */
@@ -522,6 +557,11 @@ footer {
 
     .welcome-panel .display-6 {
         font-size: 1.8rem;
+    }
+
+    .profile-image {
+        width: 140px;
+        height: 140px;
     }
 
     .fc .fc-toolbar {
