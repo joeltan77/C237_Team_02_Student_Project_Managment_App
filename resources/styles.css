@@ -1,0 +1,81 @@
+:root {
+    --bs-link-color: #4f6df5;
+    --bs-link-color-rgb: 79, 109, 245;
+    --bs-link-hover-color: #3450d6;
+    --bs-link-hover-color-rgb: 52, 80, 214;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.container-fluid {
+    flex: 1;
+}
+
+/* Custom accent color, overriding Bootstrap's default blue for a distinct product feel */
+.btn-primary {
+    --bs-btn-bg: #4f6df5;
+    --bs-btn-border-color: #4f6df5;
+    --bs-btn-hover-bg: #3450d6;
+    --bs-btn-hover-border-color: #2f47c2;
+    --bs-btn-active-bg: #2f47c2;
+    --bs-btn-active-border-color: #2a3fae;
+    --bs-btn-disabled-bg: #4f6df5;
+    --bs-btn-disabled-border-color: #4f6df5;
+    --bs-btn-focus-shadow-rgb: 79, 109, 245;
+}
+
+.btn-outline-primary {
+    --bs-btn-color: #4f6df5;
+    --bs-btn-border-color: #4f6df5;
+    --bs-btn-hover-bg: #4f6df5;
+    --bs-btn-hover-border-color: #4f6df5;
+    --bs-btn-active-bg: #4f6df5;
+    --bs-btn-active-border-color: #4f6df5;
+    --bs-btn-focus-shadow-rgb: 79, 109, 245;
+}
+
+.bg-primary,
+.navbar.bg-primary {
+    background-color: #4f6df5 !important;
+}
+
+.text-bg-primary {
+    background-color: #4f6df5 !important;
+}
+
+/* Consistent action-button grouping for cards, replacing ad-hoc <br> spacing */
+.card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+/* Collapsible demo-account hint on the login page, instead of always-visible plaintext credentials */
+.demo-credentials summary {
+    cursor: pointer;
+    color: #4f6df5;
+    font-weight: 600;
+    list-style: none;
+}
+
+.demo-credentials summary::-webkit-details-marker {
+    display: none;
+}
+
+.demo-credentials summary:hover {
+    text-decoration: underline;
+}
+
+.demo-credentials[open] summary {
+    margin-bottom: 0.5rem;
+}
