@@ -24,11 +24,11 @@
 
         <div class="mb-4">
             <h1 class="h2 mb-1">
-                Select a Project
+                Select an Archived Project
             </h1>
 
             <p class="text-muted mb-0">
-                Your permissions are based on your role in the selected project.
+                These archived projects consists of scrapped or completed projects. 
             </p>
         </div>
 
@@ -37,7 +37,7 @@
             <% if (userProjects.length === 0) { %>
                 <div class="col-12">
                     <div class="alert alert-warning">
-                        You are not currently assigned to any projects.
+                        You do not have any archived projects.
                     </div>
                 </div>
             <% } %>
@@ -96,20 +96,18 @@
                             </form>
                             <br>
                             <div>
-                                <button onclick="window.location.href='/editproject/<%= project.projectId %>';" class="btn btn-primary">
-                                Update Project Details
-                                </button>
-                                <form action="/archiveproject/<%= project.projectId %>" method="POST" style="display:inline;">
-                                    <button type="submit" class="btn btn-danger">Archive Project</button>
+                                <form action="/restoreproject/<%= project.projectId %>" method="POST" style="display:inline;">
+                                    <button type="submit" class="btn btn-success">Restore Project</button>
+                                </form>
+                                <form action="/deleteproject/<%= project.projectId %>" method="POST" style="display:inline;">
+                                    <button type="submit" class="btn btn-danger"onclick="return confirm('Are you sure you want to delete this project?');">Delete Project</button>
                                 </form>
                             </div>
                         </div>
                     </div>
                 </div>
             <% }); %>
-                
-        <button onclick="window.location.href='/addproject';" class="btn btn-primary">Add Project</button>
-        <button onclick="window.location.href='/archivedprojects';" class="btn btn-danger">View Archived Project</button>
+            <button onclick="window.location.href='/projects';" class="btn btn-danger">Return to Active Projects</button>
         </div>
     </main>
     <script
