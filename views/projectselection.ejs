@@ -70,8 +70,8 @@
                                         <input type="hidden" name="projectId" value="<%= project.projectId %>">
                                         <button type="submit" class="btn btn-primary">Open Project</button>
                                     </form>
-                                    <a href="/editproject/<%= project.projectId %>" class="btn btn-outline-secondary">Edit</a>
                                     <% if (project.role === "Project Leader") { %>
+                                        <a href="/editproject/<%= project.projectId %>" class="btn btn-outline-secondary">Edit</a>
                                         <form action="/archiveproject/<%= project.projectId %>" method="POST">
                                             <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Archive this project?');">Archive</button>
                                         </form>

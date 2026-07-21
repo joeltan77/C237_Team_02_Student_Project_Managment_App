@@ -359,23 +359,26 @@ app.post('/addproject', requireLogin, function (req, res, next) {
 });
 
 app.get('/editproject/:id', requireLogin, function (req, res, next) {
-    const projectId = req.params.id;
-    const sql = "SELECT project_id AS projectId, project_name AS projectName, description, endDate FROM projects WHERE project_id = ?";
+    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const sql = `SELECT p.project_id AS projectId, p.project_name AS projectName, p.description, DATE_FORMAT(p.endDate, '%Y-%m-%d') AS endDate FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
 
-    db.query(sql, [projectId], function (error, results) {
+    db.query(sql, [projectId, userId], function (error, results) {
         if (error) return next(error);
-        const projectData = results[0];
-        res.render("editproject", { project: projectData });
+        if (!results[0]) { req.flash("error", "Only the Project Leader can edit this project."); return res.redirect("/projects"); }
+        res.render("editproject", { project: results[0] });
     });
 });
 
-app.post('/editproject/:id', requireLogin, requireProjectLeader, function (req, res, next) {
-    const projectId = req.params.id;
-    const name = req.body.projectName;
-    const desc = req.body.description;
-    const sqlProject = "UPDATE projects SET project_name = ?, description = ?, endDate = ? WHERE project_id = ?";
-    db.query(sqlProject, [name, desc, req.body.endDate, projectId], function (error, result) {
+app.post('/editproject/:id', requireLogin, function (req, res, next) {
+    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const name = cleanText(req.body.projectName), description = cleanText(req.body.description), endDate = cleanText(req.body.endDate);
+    if (!name || !endDate) { req.flash("error", "Project name and due date are required."); return res.redirect("/editproject/" + projectId); }
+
+    const sql = `UPDATE projects p INNER JOIN project_members pm ON p.project_id = pm.project_id SET p.project_name = ?, p.description = ?, p.endDate = ? WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
+    db.query(sql, [name, description, endDate, projectId, userId], function (error, result) {
         if (error) return next(error);
+        if (result.affectedRows === 0) { req.flash("error", "Only the Project Leader can edit this project."); return res.redirect("/projects"); }
+        req.flash("success", "Project details updated successfully.");
         res.redirect("/projects");
     });
 });

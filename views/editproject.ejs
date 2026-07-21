@@ -67,12 +67,11 @@
                                         name="description"
                                         rows="4"
                                     ><%= project.description %></textarea>
-                                    <div class="col-12">
-                                    <label for="description" class="form-label">
-                                    </label>
-                                            <label for="userDate">Enter the project due date:</label>
-                                            <input type="date" id="endDate" name="endDate" value = "<%= project.endDate %>" required>
                                 </div>
+
+                                <div class="col-12">
+                                    <label for="endDate" class="form-label">Project Due Date</label>
+                                    <input type="date" class="form-control" id="endDate" name="endDate" value="<%= project.endDate %>" required>
                                 </div>
                                 <div class="col-12">
                                     <div class="d-flex gap-2">
