@@ -40,6 +40,7 @@ app.use(session({
 app.use(flash());
 
 app.use((req, res, next) => {
+    res.locals.currentPath = req.path;
     res.locals.successMessages = req.flash("success");
     res.locals.errorMessages = req.flash("error");
     next();
@@ -335,11 +336,34 @@ app.post('/editproject/:id', requireLogin, requireProjectLeader, function (req, 
     });
 });
 
-app.post("/archiveproject/:id", requireLogin, requireProjectLeader, function (req, res, next) {
-    const projectId = req.params.id;
-    const ArchiveProject = "UPDATE projects SET status = 'Archived' WHERE project_id = ?";
-    db.query(ArchiveProject, [projectId], function (error, result) {
+app.post("/archiveproject/:id", requireLogin, function (req, res, next) {
+    const projectId = Number(req.params.id);
+    const userId = res.locals.currentUser.userId;
+
+    if (!Number.isInteger(projectId) || projectId <= 0) {
+        req.flash("error", "Invalid project.");
+        return res.redirect("/projects");
+    }
+
+    // The membership check is part of the UPDATE, so only this project's leader can archive it.
+    const sql = `
+        UPDATE projects p
+        INNER JOIN project_members pm ON p.project_id = pm.project_id
+        SET p.status = 'Archived'
+        WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'
+    `;
+    db.query(sql, [projectId, userId], function (error, result) {
         if (error) return next(error);
+
+        if (result.affectedRows === 0) {
+            req.flash("error", "Only the Project Leader of this project can archive it.");
+            return res.redirect("/projects");
+        }
+
+        if (req.session.selectedProjectId === projectId) {
+            req.session.selectedProjectId = null;
+        }
+        req.flash("success", "Project archived successfully.");
         res.redirect("/projects");
     });
 });

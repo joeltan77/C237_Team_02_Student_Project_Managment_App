@@ -20,7 +20,7 @@
     <nav class="navbar navbar-dark bg-primary shadow-sm">
         <div class="container">
             <span class="navbar-brand fw-bold">
-                Student Project Manager
+                <span class="brand-mark" aria-hidden="true">P</span> ProjectPulse
             </span>
         </div>
     </nav>
@@ -35,11 +35,11 @@
                     <div class="card-body p-4 p-md-5">
 
                         <h1 class="h3 text-center mb-2">
-                            Login
+                            Welcome back
                         </h1>
 
                         <p class="text-muted text-center mb-4">
-                            Use one of the temporary accounts below.
+                            Log in to continue to your projects.
                         </p>
 
                         <form action="/login" method="POST">
@@ -86,19 +86,13 @@
                             <a href="/register">Register here</a>
                         </p>
 
-                        <hr class="my-4">
-
-                        <div class="small text-muted">
-                            <p class="mb-1">
-                                <strong>James:</strong>
-                                James / James123
-                            </p>
-
-                            <p class="mb-0">
-                                <strong>Joel:</strong>
-                                Joel / Joel123
-                            </p>
-                        </div>
+                        <details class="demo-credentials mt-4">
+                            <summary>Need a demo account?</summary>
+                            <div class="small text-muted rounded-3 bg-light p-3">
+                                <p class="mb-1"><strong>James:</strong> James / James123</p>
+                                <p class="mb-0"><strong>Joel:</strong> Joel / Joel123</p>
+                            </div>
+                        </details>
 
                     </div>
                 </div>

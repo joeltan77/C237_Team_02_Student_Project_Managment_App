@@ -3,12 +3,14 @@
    Change these values to update the whole website theme.
 ===================================================== */
 :root {
-    --primary: #5b67f1;
-    --primary-dark: #4651d8;
-    --primary-soft: #eef0ff;
-    --sidebar: #17213a;
-    --sidebar-hover: #263352;
-    --page-background: #f5f7fb;
+    --primary: #5263e8;
+    --primary-dark: #3f4fc5;
+    --primary-soft: #eef1ff;
+    --accent: #17a589;
+    --accent-soft: #e8f8f4;
+    --sidebar: #18233b;
+    --sidebar-hover: #263553;
+    --page-background: #f6f8fc;
     --surface: #ffffff;
     --text-main: #1f2937;
     --text-muted: #6b7280;
@@ -16,8 +18,8 @@
     --success: #16a36a;
     --danger: #dc4c64;
     --warning: #f59e0b;
-    --radius-sm: 10px;
-    --radius-md: 16px;
+    --radius-sm: 12px;
+    --radius-md: 18px;
     --shadow-sm: 0 4px 16px rgba(31, 41, 55, 0.06);
     --shadow-md: 0 12px 30px rgba(31, 41, 55, 0.10);
 
@@ -45,12 +47,27 @@ body {
     line-height: 1.6;
 }
 
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: -1;
+    height: 260px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(82, 99, 232, 0.055), transparent);
+}
+
 .container-fluid {
     flex: 1;
 }
 
 main {
     animation: pageFadeIn 0.25s ease-out;
+}
+
+main > .d-flex:first-of-type h1,
+main > h1:first-child {
+    margin-bottom: 0.25rem;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -82,8 +99,23 @@ a {
 }
 
 .navbar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
     font-size: 1.15rem;
     letter-spacing: -0.02em;
+}
+
+.brand-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    color: var(--primary);
+    background: white;
+    border-radius: 11px;
+    box-shadow: 0 5px 14px rgba(28, 39, 94, 0.22);
+    font-weight: 800;
 }
 
 .navbar img {
@@ -109,12 +141,46 @@ a {
 }
 
 #sidebarMenu .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.72rem;
     padding: 0.72rem 0.9rem;
     border-radius: var(--radius-sm);
     font-size: 0.94rem;
     font-weight: 500;
     opacity: 0.82;
     transition: background 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+#sidebarMenu .nav-link.active {
+    color: white !important;
+    background: linear-gradient(110deg, rgba(103, 119, 255, 0.9), rgba(82, 99, 232, 0.72));
+    box-shadow: 0 7px 18px rgba(8, 15, 36, 0.22);
+    opacity: 1;
+}
+
+.sidebar-label {
+    margin: 0.65rem 0.9rem 0.35rem;
+    color: #9aa7c3;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.nav-icon {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 1.5rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    color: #c9d2e7;
+    font-size: 1rem;
+}
+
+#sidebarMenu .nav-link.active .nav-icon,
+#sidebarMenu .nav-link:hover .nav-icon {
+    color: white;
 }
 
 #sidebarMenu .nav-link:hover,
@@ -152,6 +218,10 @@ a {
     border-bottom: 1px solid var(--border);
 }
 
+.card-header.bg-white {
+    background: rgba(255, 255, 255, 0.92) !important;
+}
+
 .card-body {
     padding: 1.25rem;
 }
@@ -161,6 +231,15 @@ a {
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 1rem;
+}
+
+.dashboard-actions,
+.member-assign-form {
+    min-width: 0;
+}
+
+.member-assign-form .form-select {
+    min-width: 220px;
 }
 
 /* Project selection welcome page */
@@ -332,6 +411,13 @@ a {
     transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
+.btn:focus-visible,
+.form-control:focus-visible,
+.form-select:focus-visible {
+    outline: 3px solid rgba(82, 99, 232, 0.24);
+    outline-offset: 2px;
+}
+
 .btn:hover {
     transform: translateY(-1px);
 }
@@ -443,6 +529,15 @@ textarea.form-control {
     --bs-table-hover-bg: var(--primary-soft);
 }
 
+.table tbody td:first-child strong {
+    color: #26334d;
+}
+
+.table-responsive {
+    scrollbar-color: #bac3d8 transparent;
+    scrollbar-width: thin;
+}
+
 .badge {
     padding: 0.45em 0.7em;
     border-radius: 999px;
@@ -454,6 +549,25 @@ textarea.form-control {
     border-left: 4px solid currentColor;
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-sm);
+}
+
+.alert-info,
+.alert-light {
+    color: #40506e;
+    background: #f1f5fb;
+}
+
+.list-group-item {
+    border-color: var(--border);
+}
+
+.modal-content {
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.modal-header {
+    padding: 1.1rem 1.25rem;
 }
 
 /* =====================================================
@@ -521,6 +635,22 @@ footer {
     list-style: none;
 }
 
+.demo-credentials summary::before {
+    content: "+";
+    display: inline-grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    margin-right: 0.35rem;
+    border: 1px solid #cbd3ef;
+    border-radius: 50%;
+    font-size: 0.9rem;
+}
+
+.demo-credentials[open] summary::before {
+    content: "−";
+}
+
 .demo-credentials summary::-webkit-details-marker {
     display: none;
 }
@@ -541,6 +671,12 @@ footer {
 @media (max-width: 767.98px) {
     #sidebarMenu {
         min-height: auto !important;
+        max-height: calc(100vh - 68px);
+        overflow-y: auto;
+        position: sticky;
+        top: 68px;
+        z-index: 1025;
+        box-shadow: 0 14px 30px rgba(10, 18, 40, 0.22) !important;
     }
 
     main {
@@ -549,6 +685,21 @@ footer {
 
     .card-body {
         padding: 1rem;
+    }
+
+    .card:hover {
+        transform: none;
+    }
+
+    .table > :not(caption) > * > * {
+        padding: 0.75rem;
+        white-space: nowrap;
+    }
+
+    .table td:first-child,
+    .table th:first-child {
+        white-space: normal;
+        min-width: 160px;
     }
 
     .welcome-panel {
@@ -571,6 +722,54 @@ footer {
 
     .fc .fc-toolbar-title {
         font-size: 1.05rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .navbar {
+        padding-inline: 0.75rem;
+    }
+
+    .navbar-brand {
+        font-size: 1rem;
+    }
+
+    .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+    }
+
+    .project-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .project-actions .btn,
+    .project-actions form {
+        width: 100%;
+    }
+
+    .project-actions form .btn {
+        width: 100%;
+    }
+
+    .dashboard-actions,
+    .member-assign-form {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .member-assign-form .form-select {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .member-assign-form .btn {
+        flex: 1 1 auto;
+    }
+
+    .dashboard-actions > .btn {
+        flex: 1 1 auto;
     }
 }
 

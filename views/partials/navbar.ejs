@@ -27,7 +27,8 @@
             class="navbar-brand fw-bold"
             href="<%= navbarProject ? '/dashboard' : '/projects' %>"
         >
-            PROJECT PULSE
+            <span class="brand-mark" aria-hidden="true">P</span>
+            <span>ProjectPulse</span>
         </a>
 
         <% if (navbarUser) { %>
@@ -67,7 +68,7 @@
                         style="object-fit: cover;"
                     >
 
-                    <span class="d-none d-sm-inline">
+                    <span class="d-none d-sm-inline fw-semibold">
                         <%= navbarUser.name %>
                     </span>
                 </a>

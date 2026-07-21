@@ -31,12 +31,12 @@
         </p>
     </div>
 
-    <div class="d-flex align-items-center gap-2">
+    <div class="dashboard-actions d-flex align-items-center gap-2">
         <% if (currentProjectRole === "Project Leader") { %>
             <form
                 action="/projects/<%= selectedProject.projectId %>/assignmember"
                 method="POST"
-                class="d-flex align-items-center gap-2"
+                class="member-assign-form d-flex align-items-center gap-2"
             >
                 <select name="userId" class="form-select form-select-sm" required>
                     <option value="" selected disabled>Add a member to the project</option>
