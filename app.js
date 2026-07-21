@@ -973,11 +973,18 @@ app.get("/timeline", requireLogin, requireSelectedProject, (req, res, next) => {
 });
 
 app.get("/notifications", requireLogin, requireSelectedProject, (req, res, next) => {
+    req.session.notificationsSeen = true;
     const sql = `SELECT description, DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 20`;
     db.query(sql, [res.locals.selectedProject.projectId], (error, rows) => {
         if (error) return next(error);
         const notifications = rows.map(row => ({ title: "Project Activity", message: row.description, time: row.time }));
-        res.render("notification", { notifications });
+        res.render("notification", {
+            currentUser: res.locals.currentUser,
+            selectedProject: res.locals.selectedProject,
+            currentProjectRole: res.locals.currentProjectRole,
+            notifications,
+            notificationCount: 0
+        });
     });
 });
 
