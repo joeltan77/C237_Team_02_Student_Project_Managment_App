@@ -240,8 +240,11 @@ app.post("/login", (req, res, next) => {
     });
 });
 
-// Log the user out.
-app.get('/logout', requireLogin, (req, res) => {
+// Ask for confirmation before ending the session.
+app.get("/logout", requireLogin, (req, res) => res.render("logout"));
+
+// Log the user out after confirmation.
+app.post('/logout', requireLogin, (req, res) => {
     req.session.destroy((err) => {
         if (err) {
             console.error(err);
@@ -831,34 +834,43 @@ function grantAchievement(userId, achievementType) {
     });
 }
 
-function checkAchievements(userId) {
-    if (!userId) return;
+function checkAchievements(userId, callback = () => {}) {
+    if (!userId) return callback();
 
-    db.query(`SELECT COUNT(*) AS count FROM tasks WHERE assigned_user_id = ? AND status = 'Completed'`, [userId], (error, rows) => {
-        if (error) return;
-        const completedCount = Number(rows[0].count || 0);
-        if (completedCount >= 1) grantAchievement(userId, "first_task_completed");
-        if (completedCount >= 5) grantAchievement(userId, "team_mvp");
-    });
+    const sql = `
+        SELECT COUNT(*) AS totalCount,
+               SUM(status = 'Completed') AS completedCount,
+               SUM(status = 'Completed' AND DATE(updated_at) <= due_date) AS earlyCount,
+               SUM(status <> 'Completed' AND due_date < CURDATE()) AS overdueCount
+        FROM tasks
+        WHERE assigned_user_id = ?
+    `;
+    db.query(sql, [userId], (error, rows) => {
+        if (error) return callback(error);
+        const stats = rows[0], earnedTypes = [];
+        const totalCount = Number(stats.totalCount || 0), completedCount = Number(stats.completedCount || 0);
+        if (completedCount >= 1) earnedTypes.push("first_task_completed");
+        if (completedCount >= 5) earnedTypes.push("team_mvp");
+        if (Number(stats.earlyCount || 0) >= 1) earnedTypes.push("early_finisher");
+        if (totalCount > 0 && Number(stats.overdueCount || 0) === 0) earnedTypes.push("no_overdue_tasks");
+        if (earnedTypes.length === 0) return callback();
 
-    db.query(`SELECT COUNT(*) AS count FROM tasks WHERE assigned_user_id = ? AND status = 'Completed' AND due_date >= CURDATE()`, [userId], (error, rows) => {
-        if (!error && Number(rows[0].count || 0) >= 1) grantAchievement(userId, "early_finisher");
-    });
-
-    db.query(`SELECT COUNT(*) AS totalCount, SUM(CASE WHEN due_date < CURDATE() AND status <> 'Completed' THEN 1 ELSE 0 END) AS overdueCount FROM tasks WHERE assigned_user_id = ?`, [userId], (error, rows) => {
-        if (error) return;
-        const totalCount = Number(rows[0].totalCount || 0), overdueCount = Number(rows[0].overdueCount || 0);
-        if (totalCount > 0 && overdueCount === 0) grantAchievement(userId, "no_overdue_tasks");
+        const placeholders = earnedTypes.map(() => "(?, ?, NOW())").join(", ");
+        const values = earnedTypes.flatMap(type => [userId, type]);
+        db.query(`INSERT IGNORE INTO achievements (user_id, achievement_type, earned_at) VALUES ${placeholders}`, values, callback);
     });
 }
 
 app.get("/achievements", requireLogin, (req, res, next) => {
     const userId = res.locals.currentUser.userId;
     const sql = `SELECT achievement_id AS achievementId, achievement_type AS achievementType, DATE_FORMAT(DATE_ADD(earned_at, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS earnedAtText FROM achievements WHERE user_id = ? ORDER BY earned_at DESC`;
-    db.query(sql, [userId], (error, rows) => {
-        if (error) return next(error);
-        const achievements = rows.map(row => ({ ...row, label: achievementLabels[row.achievementType] || row.achievementType }));
-        res.render("achievements", { achievements });
+    checkAchievements(userId, achievementError => {
+        if (achievementError) return next(achievementError);
+        db.query(sql, [userId], (error, rows) => {
+            if (error) return next(error);
+            const achievements = rows.map(row => ({ ...row, label: achievementLabels[row.achievementType] || row.achievementType }));
+            res.render("achievements", { achievements });
+        });
     });
 });
 
