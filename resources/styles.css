@@ -226,6 +226,29 @@ a {
     padding: 1.25rem;
 }
 
+/* Login background: the overlay keeps the form easy to read. */
+body.login-page {
+    min-height: 100vh;
+    background:
+        linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.45)),
+        url("/images/ak_rp_0205.jpg") center / cover no-repeat fixed !important;
+}
+
+.login-page main {
+    min-height: calc(100vh - 72px);
+    display: flex;
+    align-items: center;
+}
+
+.login-page main > .row {
+    width: 100%;
+}
+
+.login-page .card {
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(6px);
+}
+
 .card-actions {
     display: flex;
     flex-wrap: wrap;

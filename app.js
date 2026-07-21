@@ -98,21 +98,41 @@ const yearSemesterOptions = [
     "Year 2 Semester 2", "Year 3 Semester 1", "Year 3 Semester 2"
 ];
 
+const priorityOptions = ["Low", "Medium", "High"];
+const taskStatusOptions = ["Not Started", "In Progress", "Completed"];
+const bucketOptions = ["went_well", "improvement", "thanks"];
+
 const cleanText = value => String(value || "").trim();
-const isValidPriority = priority => ["Low", "Medium", "High"].includes(priority);
-const isValidTaskStatus = status => ["Not Started", "In Progress", "Completed"].includes(status);
-const isValidBucket = bucketType => ["went_well", "improvement", "thanks"].includes(bucketType);
+const isValidPriority = priority => priorityOptions.includes(priority);
+const isValidTaskStatus = status => taskStatusOptions.includes(status);
+const isValidBucket = bucketType => bucketOptions.includes(bucketType);
 
 // =====================================================
 // DATABASE HELPERS
 // =====================================================
 function getUserById(userId, callback) {
-    const sql = `SELECT user_id AS userId, username, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE user_id = ? LIMIT 1`;
+    const sql = `
+        SELECT user_id AS userId, username, name, email,
+               contact_number AS contactNumber, diploma,
+               year_semester AS yearSemester, bio,
+               profile_picture AS profilePicture
+        FROM users
+        WHERE user_id = ?
+        LIMIT 1
+    `;
     db.query(sql, [userId], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
 function getUserByEmail(email, callback) {
-    const sql = `SELECT user_id AS userId, username, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`;
+    const sql = `
+        SELECT user_id AS userId, username, name, email,
+               contact_number AS contactNumber, diploma,
+               year_semester AS yearSemester, bio,
+               profile_picture AS profilePicture
+        FROM users
+        WHERE LOWER(email) = LOWER(?)
+        LIMIT 1
+    `;
     db.query(sql, [email], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
@@ -122,12 +142,28 @@ function getUserByUsername(username, callback) {
 }
 
 function getProjectContext(projectId, userId, callback) {
-    const sql = `SELECT p.project_id AS projectId, p.project_name AS projectName, p.description, pm.role FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND pm.user_id = ? LIMIT 1`;
+    const sql = `
+        SELECT p.project_id AS projectId, p.project_name AS projectName,
+               p.description, pm.role
+        FROM projects p
+        INNER JOIN project_members pm ON p.project_id = pm.project_id
+        WHERE p.project_id = ? AND pm.user_id = ?
+        LIMIT 1
+    `;
     db.query(sql, [projectId, userId], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
 function getProjectMembers(projectId, callback) {
-    const sql = `SELECT u.user_id AS userId, u.username, u.name, u.email, u.contact_number AS contactNumber, u.diploma, u.year_semester AS yearSemester, u.bio, u.profile_picture AS profilePicture, pm.role FROM project_members pm INNER JOIN users u ON pm.user_id = u.user_id WHERE pm.project_id = ? ORDER BY CASE WHEN pm.role = 'Project Leader' THEN 0 ELSE 1 END, u.name`;
+    const sql = `
+        SELECT u.user_id AS userId, u.username, u.name, u.email,
+               u.contact_number AS contactNumber, u.diploma,
+               u.year_semester AS yearSemester, u.bio,
+               u.profile_picture AS profilePicture, pm.role
+        FROM project_members pm
+        INNER JOIN users u ON pm.user_id = u.user_id
+        WHERE pm.project_id = ?
+        ORDER BY CASE WHEN pm.role = 'Project Leader' THEN 0 ELSE 1 END, u.name
+    `;
     db.query(sql, [projectId], (error, results) => error ? callback(error) : callback(null, results));
 }
 
@@ -176,15 +212,37 @@ app.use((req, res, next) => {
 // =====================================================
 // PERMISSION MIDDLEWARE
 // =====================================================
-const requireLogin = (req, res, next) => !res.locals.currentUser ? (req.flash("error", "Please log in before accessing that page."), res.redirect("/login")) : next();
-const requireSelectedProject = (req, res, next) => !res.locals.selectedProject ? (req.flash("error", "Please select a project first."), res.redirect("/projects")) : next();
-const requireProjectLeader = (req, res, next) => res.locals.currentProjectRole !== "Project Leader" ? (req.flash("error", "Only the Project Leader can perform that action."), res.redirect("/dashboard")) : next();
+function requireLogin(req, res, next) {
+    if (res.locals.currentUser) return next();
+    req.flash("error", "Please log in before accessing that page.");
+    res.redirect("/login");
+}
+
+function requireSelectedProject(req, res, next) {
+    if (res.locals.selectedProject) return next();
+    req.flash("error", "Please select a project first.");
+    res.redirect("/projects");
+}
+
+function requireProjectLeader(req, res, next) {
+    if (res.locals.currentProjectRole === "Project Leader") return next();
+    req.flash("error", "Only the Project Leader can perform that action.");
+    res.redirect("/dashboard");
+}
 
 // =====================================================
 // HOME, LOGIN AND LOGOUT
 // =====================================================
-app.get("/", (req, res) => !res.locals.currentUser ? res.redirect("/login") : (!res.locals.selectedProject ? res.redirect("/projects") : res.redirect("/dashboard")));
-app.get("/login", (req, res) => res.locals.currentUser ? res.redirect("/projects") : res.render("login"));
+app.get("/", (req, res) => {
+    if (!res.locals.currentUser) return res.redirect("/login");
+    if (!res.locals.selectedProject) return res.redirect("/projects");
+    res.redirect("/dashboard");
+});
+
+app.get("/login", (req, res) => {
+    if (res.locals.currentUser) return res.redirect("/projects");
+    res.render("login");
+});
 
 app.post("/login", (req, res, next) => {
     const username = cleanText(req.body.username), password = String(req.body.password || "");
@@ -829,13 +887,6 @@ const achievementLabels = {
     no_overdue_tasks: "No Overdue Tasks",
     team_mvp: "Team MVP"
 };
-
-function grantAchievement(userId, achievementType) {
-    const sql = `INSERT IGNORE INTO achievements (user_id, achievement_type, earned_at) VALUES (?, ?, NOW())`;
-    db.query(sql, [userId, achievementType], error => {
-        if (error) console.error("Achievement insert error:", error.message);
-    });
-}
 
 function checkAchievements(userId, callback = () => {}) {
     if (!userId) return callback();
