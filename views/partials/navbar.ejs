@@ -45,6 +45,15 @@
                     </div>
                 <% } %>
 
+                <% if (navbarProject) { %>
+                    <a href="/notifications" class="text-white position-relative text-decoration-none" title="Notifications" aria-label="Notifications">
+                        <span class="fs-4" aria-hidden="true">&#128276;</span>
+                        <% if (typeof notificationCount !== "undefined" && notificationCount > 0) { %>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"><%= notificationCount %></span>
+                        <% } %>
+                    </a>
+                <% } %>
+
                 <a
                     href="/profile"
                     class="text-decoration-none d-flex align-items-center gap-2 text-white"

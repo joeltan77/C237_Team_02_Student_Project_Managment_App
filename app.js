@@ -276,6 +276,8 @@ app.post("/projects/select", requireLogin, function (req, res, next) {
                 return res.redirect("/projects");
             } else {
                 req.session.selectedProjectId = projectId;
+                // Show the reminder popup once when this project is opened.
+                req.session.remindersSeen = false;
                 req.flash("success", "Project selected successfully.");
                 res.redirect("/dashboard");
             }
@@ -324,7 +326,7 @@ app.get('/editproject/:id', requireLogin, function (req, res, next) {
     });
 });
 
-app.post('/editproject/:id', requireLogin, function (req, res, next) {
+app.post('/editproject/:id', requireLogin, requireProjectLeader, function (req, res, next) {
     const projectId = req.params.id;
     const name = req.body.projectName;
     const desc = req.body.description;
@@ -335,7 +337,7 @@ app.post('/editproject/:id', requireLogin, function (req, res, next) {
     });
 });
 
-app.post("/archiveproject/:id", requireLogin, function (req, res, next) {
+app.post("/archiveproject/:id", requireLogin, requireProjectLeader, function (req, res, next) {
     const projectId = req.params.id;
     const ArchiveProject = "UPDATE projects SET status = 'Archived' WHERE project_id = ?";
     db.query(ArchiveProject, [projectId], function (error, result) {
@@ -357,7 +359,7 @@ app.get("/archivedprojects", requireLogin, function (req, res, next) {
     });
 });
 
-app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
+app.post("/deleteproject/:id", requireLogin, requireProjectLeader, function (req, res, next) {
     const projectId = req.params.id;
     const DeleteProject = "DELETE FROM projects WHERE project_id = ?";
     db.query(DeleteProject, [projectId], function (error, result) {
@@ -366,7 +368,7 @@ app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
     });
 });
 
-app.post("/restoreproject/:id", requireLogin, function (req, res, next) {
+app.post("/restoreproject/:id", requireLogin, requireProjectLeader, function (req, res, next) {
     const projectId = req.params.id;
     const RestoreProject = "UPDATE projects SET status = 'Active' WHERE project_id = ?";
     db.query(RestoreProject, [projectId], function (error, result) {
@@ -380,30 +382,102 @@ app.post("/restoreproject/:id", requireLogin, function (req, res, next) {
 // =====================================================
 app.get("/dashboard", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId;
+
     const summarySql = `SELECT COUNT(*) AS totalTasks, SUM(status = 'Completed') AS completedTasks, SUM(status = 'In Progress') AS inProgressTasks FROM tasks WHERE project_id = ?`;
 
     db.query(summarySql, [projectId], (summaryError, summaryRows) => {
         if (summaryError) return next(summaryError);
-        const s = summaryRows[0], total = Number(s.totalTasks || 0), comp = Number(s.completedTasks || 0), prog = Number(s.inProgressTasks || 0);
-        const completionPercentage = total > 0 ? Math.round((comp / total) * 100) : 0;
-        const teamProductivity = total > 0 ? Math.round((comp + prog * 0.5) / total * 100) : 0;
 
-        const deadlinesSql = `SELECT task_id AS taskId, task_name AS taskName, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate FROM tasks WHERE project_id = ? AND status <> 'Completed' AND due_date >= CURDATE() ORDER BY due_date ASC LIMIT 5`;
-        db.query(deadlinesSql, [projectId], (deadlineError, upcomingDeadlines) => {
-            if (deadlineError) return next(deadlineError);
-            const activitySql = `SELECT activity_id AS activityId, description, created_at AS createdAt FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 5`;
-            db.query(activitySql, [projectId], (activityError, recentActivities) => {
-                if (activityError) return next(activityError);
-                const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location, agenda FROM meetings WHERE project_id = ? AND YEARWEEK(meeting_date, 1) = YEARWEEK(CURDATE(), 1) ORDER BY meeting_date, meeting_time`;
-                db.query(meetingSql, [projectId], (meetingError, meetingsThisWeek) => {
-                    if (meetingError) return next(meetingError);
-                    res.render("dashboard", { user: res.locals.currentUser, selectedProject: res.locals.selectedProject, currentProjectRole: res.locals.currentProjectRole, dashboard: { completionPercentage, teamProductivity, totalTasks: total }, upcomingDeadlines, recentActivities, meetingsThisWeek });
+        const s = summaryRows[0];
+        const total = Number(s.totalTasks || 0);
+        const comp = Number(s.completedTasks || 0);
+        const prog = Number(s.inProgressTasks || 0);
+
+        const completionPercentage = total > 0 ? Math.round((comp / total) * 100) : 0;
+        const teamProductivity = total > 0 ? Math.round(((comp + prog * 0.5) / total) * 100) : 0;
+
+        const usersSql = `SELECT user_id AS userId, username FROM users ORDER BY username`;
+
+        db.query(usersSql, (usersError, users) => {
+            if (usersError) return next(usersError);
+
+            const deadlinesSql = `SELECT task_id AS taskId, task_name AS taskName, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate FROM tasks WHERE project_id = ? AND status <> 'Completed' AND due_date >= CURDATE() ORDER BY due_date ASC LIMIT 5`;
+
+            db.query(deadlinesSql, [projectId], (deadlineError, upcomingDeadlines) => {
+                if (deadlineError) return next(deadlineError);
+
+                const activitySql = `SELECT activity_id AS activityId, description, created_at AS createdAt FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 5`;
+
+                db.query(activitySql, [projectId], (activityError, recentActivities) => {
+                    if (activityError) return next(activityError);
+
+                    const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location, agenda FROM meetings WHERE project_id = ? AND YEARWEEK(meeting_date, 1) = YEARWEEK(CURDATE(), 1) ORDER BY meeting_date, meeting_time`;
+
+                    db.query(meetingSql, [projectId], (meetingError, meetingsThisWeek) => {
+                        if (meetingError) return next(meetingError);
+
+                        const reminderTaskSql = `SELECT task_name AS taskName, priority, DATE_FORMAT(due_date, '%d %b %Y') AS dueDate FROM tasks WHERE project_id = ? AND status <> 'Completed' AND due_date >= CURDATE() ORDER BY due_date LIMIT 5`;
+                        db.query(reminderTaskSql, [projectId], (reminderTaskError, reminderTasks) => {
+                            if (reminderTaskError) return next(reminderTaskError);
+
+                            const reminderMeetingSql = `SELECT meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%d %b %Y') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime FROM meetings WHERE project_id = ? AND meeting_date >= CURDATE() ORDER BY meeting_date LIMIT 5`;
+                            db.query(reminderMeetingSql, [projectId], (reminderMeetingError, reminderMeetings) => {
+                                if (reminderMeetingError) return next(reminderMeetingError);
+
+                                const reminders = reminderTasks.map(task => ({
+                                    title: task.taskName,
+                                    message: "Due " + task.dueDate + " - " + task.priority + " priority",
+                                    type: "task"
+                                })).concat(reminderMeetings.map(meeting => ({
+                                    title: meeting.meetingTitle,
+                                    message: meeting.meetingDate + " at " + meeting.meetingTime,
+                                    type: "meeting"
+                                })));
+
+                                const showRemindersPopup = !req.session.remindersSeen && reminders.length > 0;
+                                if (showRemindersPopup) req.session.remindersSeen = true;
+
+                                res.render("dashboard", {
+                                    user: res.locals.currentUser,
+                                    selectedProject: res.locals.selectedProject,
+                                    currentProjectRole: res.locals.currentProjectRole,
+                                    dashboard: { completionPercentage, teamProductivity, totalTasks: total },
+                                    upcomingDeadlines,
+                                    recentActivities,
+                                    meetingsThisWeek,
+                                    users,
+                                    reminders,
+                                    showRemindersPopup,
+                                    notificationCount: recentActivities.length
+                                });
+                            });
+                        });
+                    });
                 });
             });
         });
     });
 });
+// =====================================================
+// PROJECT MEMBERS
+// =====================================================
+app.post("/projects/:id/assignmember", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
+    const projectId = res.locals.selectedProject.projectId;
+    const userId = Number(req.body.userId);
+    const AssignMemberSql = "INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, 'Project Member')";
+    db.query(AssignMemberSql, [projectId, userId], (error) => {
+        if (error) return next(error);
+        res.redirect("/dashboard");
+    });
+});
 
+// Every project member may view the team list.
+app.get("/project-members", requireLogin, requireSelectedProject, (req, res, next) => {
+    getProjectMembers(res.locals.selectedProject.projectId, (error, members) => {
+        if (error) return next(error);
+        res.render("userlist", { members, diplomaOptions, yearSemesterOptions });
+    });
+});
 // =====================================================
 // PROFILE
 // =====================================================
@@ -438,92 +512,6 @@ app.post("/profile/change-password", requireLogin, (req, res, next) => {
     if (newP === oldP) { req.flash("error", "The new password must be different from the current password."); return res.redirect("/profile/change-password"); }
 
     db.query(`UPDATE users SET password = ? WHERE user_id = ?`, [newP, cur.userId], error => error ? next(error) : (req.flash("success", "Your password has been changed."), res.redirect("/profile")));
-});
-
-// =====================================================
-// PROJECT MEMBERS
-// =====================================================
-app.get("/project-members", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    getProjectMembers(res.locals.selectedProject.projectId, (error, members) => error ? next(error) : res.render("userlist", { members, diplomaOptions, yearSemesterOptions }));
-});
-
-app.post("/project-members/add", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, name = cleanText(req.body.name), email = cleanText(req.body.email).toLowerCase();
-    const diploma = cleanText(req.body.diploma), yearSemester = cleanText(req.body.yearSemester), bio = cleanText(req.body.bio);
-    if (!name || !email) { req.flash("error", "Name and email are required."); return res.redirect("/project-members"); }
-
-    getUserByEmail(email, (findError, existingUser) => {
-        if (findError) return next(findError);
-
-        const insertMembership = (userId, memberName) => {
-            db.query(`INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, 'Project Member')`, [projectId, userId], error => {
-                if (error) return next(error);
-                addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + " added " + memberName + " to the project.", activityError => activityError ? next(activityError) : (req.flash("success", "Project member added successfully."), res.redirect("/project-members")));
-            });
-        };
-
-        if (existingUser) {
-            db.query(`SELECT project_id FROM project_members WHERE project_id = ? AND user_id = ? LIMIT 1`, [projectId, existingUser.userId], (error, rows) => {
-                if (error) return next(error);
-                if (rows.length > 0) { req.flash("error", "That user is already a member of this project."); return res.redirect("/project-members"); }
-                insertMembership(existingUser.userId, existingUser.name);
-            });
-        } else {
-            const username = (email.split("@")[0] || "student") + Date.now();
-            const vals = [username, "Temp1234", name, email, diploma, yearSemester, bio, "/images/profile-pictures/default-profile.svg"];
-            db.query(`INSERT INTO users (username, password, name, email, diploma, year_semester, bio, profile_picture) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, vals, (error, result) => error ? next(error) : insertMembership(result.insertId, name));
-        }
-    });
-});
-
-app.post("/project-members/:userId/make-leader", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, targetUserId = Number(req.params.userId);
-    const targetSql = `SELECT pm.role, u.name FROM project_members pm INNER JOIN users u ON pm.user_id = u.user_id WHERE pm.project_id = ? AND pm.user_id = ? LIMIT 1`;
-
-    db.query(targetSql, [projectId, targetUserId], (targetError, targetRows) => {
-        if (targetError) return next(targetError);
-        if (targetRows.length === 0) { req.flash("error", "That user is not a member of this project."); return res.redirect("/project-members"); }
-        if (targetRows[0].role === "Project Leader") { req.flash("error", "That user is already the Project Leader."); return res.redirect("/project-members"); }
-
-        db.beginTransaction(transactionError => {
-            if (transactionError) return next(transactionError);
-            db.query(`UPDATE project_members SET role = 'Project Member' WHERE project_id = ? AND role = 'Project Leader'`, [projectId], demoteError => {
-                if (demoteError) return db.rollback(() => next(demoteError));
-                db.query(`UPDATE project_members SET role = 'Project Leader' WHERE project_id = ? AND user_id = ?`, [projectId, targetUserId], promoteError => {
-                    if (promoteError) return db.rollback(() => next(promoteError));
-                    addActivity(projectId, res.locals.currentUser.userId, targetRows[0].name + " became the Project Leader.", activityError => {
-                        if (activityError) return db.rollback(() => next(activityError));
-                        db.commit(commitError => commitError ? db.rollback(() => next(commitError)) : (req.flash("success", "Project Leader role transferred successfully."), res.redirect("/dashboard")));
-                    });
-                });
-            });
-        });
-    });
-});
-
-app.post("/project-members/:userId/remove", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, targetUserId = Number(req.params.userId);
-    const targetSql = `SELECT pm.role, u.name FROM project_members pm INNER JOIN users u ON pm.user_id = u.user_id WHERE pm.project_id = ? AND pm.user_id = ? LIMIT 1`;
-
-    db.query(targetSql, [projectId, targetUserId], (targetError, targetRows) => {
-        if (targetError) return next(targetError);
-        if (targetRows.length === 0) { req.flash("error", "That user is not a member of this project."); return res.redirect("/project-members"); }
-        if (targetRows[0].role === "Project Leader") { req.flash("error", "Transfer the Project Leader role before removing this member."); return res.redirect("/project-members"); }
-
-        db.beginTransaction(transactionError => {
-            if (transactionError) return next(transactionError);
-            db.query(`UPDATE tasks SET assigned_user_id = NULL WHERE project_id = ? AND assigned_user_id = ?`, [projectId, targetUserId], unassignError => {
-                if (unassignError) return db.rollback(() => next(unassignError));
-                db.query(`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, [projectId, targetUserId], deleteError => {
-                    if (deleteError) return db.rollback(() => next(deleteError));
-                    addActivity(projectId, res.locals.currentUser.userId, targetRows[0].name + " was removed from the project.", activityError => {
-                        if (activityError) return db.rollback(() => next(activityError));
-                        db.commit(commitError => commitError ? db.rollback(() => next(commitError)) : (req.flash("success", "The member was removed from this project only."), res.redirect("/project-members")));
-                    });
-                });
-            });
-        });
-    });
 });
 
 // =====================================================
@@ -973,18 +961,11 @@ app.get("/timeline", requireLogin, requireSelectedProject, (req, res, next) => {
 });
 
 app.get("/notifications", requireLogin, requireSelectedProject, (req, res, next) => {
-    req.session.notificationsSeen = true;
     const sql = `SELECT description, DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 20`;
     db.query(sql, [res.locals.selectedProject.projectId], (error, rows) => {
         if (error) return next(error);
         const notifications = rows.map(row => ({ title: "Project Activity", message: row.description, time: row.time }));
-        res.render("notification", {
-            currentUser: res.locals.currentUser,
-            selectedProject: res.locals.selectedProject,
-            currentProjectRole: res.locals.currentProjectRole,
-            notifications,
-            notificationCount: 0
-        });
+        res.render("notification", { notifications });
     });
 });
 
@@ -999,6 +980,30 @@ app.get("/reminders", requireLogin, requireSelectedProject, (req, res, next) => 
             const reminders = tasks.map(task => ({ title: task.taskName, message: "Due " + task.dueDate + " • " + task.priority + " priority", type: "task" }))
                 .concat(meetings.map(meeting => ({ title: meeting.meetingTitle, message: meeting.meetingDate + " at " + meeting.meetingTime, type: "meeting" })));
             res.render("reminders", { reminders });
+        });
+    });
+});
+
+// =====================================================
+// SEARCH
+// =====================================================
+app.get("/search", requireLogin, requireSelectedProject, (req, res, next) => {
+    const query = cleanText(req.query.query);
+    if (!query) {
+        req.flash("error", "Please enter a search term.");
+        return res.redirect("/dashboard");
+    }
+
+    const projectId = res.locals.selectedProject.projectId;
+    const searchTerm = "%" + query + "%";
+    const taskSql = `SELECT task_id AS taskId, task_name AS taskName, description, priority, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate FROM tasks WHERE project_id = ? AND (task_name LIKE ? OR description LIKE ?) ORDER BY due_date`;
+    const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, agenda, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime FROM meetings WHERE project_id = ? AND (meeting_title LIKE ? OR agenda LIKE ?) ORDER BY meeting_date, meeting_time`;
+
+    db.query(taskSql, [projectId, searchTerm, searchTerm], (taskError, tasks) => {
+        if (taskError) return next(taskError);
+        db.query(meetingSql, [projectId, searchTerm, searchTerm], (meetingError, meetings) => {
+            if (meetingError) return next(meetingError);
+            res.render("searchResults", { query, tasks, meetings, totalResults: tasks.length + meetings.length });
         });
     });
 });

@@ -1,312 +1,55 @@
 <!DOCTYPE html>
-<%# Manages the selected project's members. %>
+<%# Displays all members of the selected project. %>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Members</title>
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-    >
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/resources/styles.css">
 </head>
-
 <body class="bg-light">
-
     <%- include("partials/navbar") %>
-
-    <div class="container-fluid">
-        <div class="row">
-
-            <%- include("partials/sidebar") %>
-
-            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
-
-                <%- include("partials/messages") %>
-
-                <div
-                    class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4"
-                >
-                    <div>
-                        <h1 class="h2 mb-1">
-                            Project Members
-                        </h1>
-
-                        <p class="text-muted mb-0">
-                            Manage members and transfer the Project Leader role.
-                        </p>
-                    </div>
-
-                    <button
-                        type="button"
-                        class="btn btn-primary"
-                        data-bs-toggle="modal"
-                        data-bs-target="#addMemberModal"
-                    >
-                        Add Member
-                    </button>
+    <div class="container-fluid"><div class="row">
+        <%- include("partials/sidebar") %>
+        <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 py-4">
+            <%- include("partials/messages") %>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+                <div>
+                    <h1 class="h2 mb-1">Project Members</h1>
+                    <p class="text-muted mb-0">People working on <%= selectedProject.projectName %>.</p>
                 </div>
-
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body">
-
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle">
-                                <thead>
-                                    <tr>
-                                        <th>Profile</th>
-                                        <th>Name</th>
-                                        <th>Email</th>
-                                        <th>Role</th>
-                                        <th>Diploma</th>
-                                        <th>Year/Semester</th>
-                                        <th>Bio</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-
-                                <tbody>
-                                    <% members.forEach(function (member) { %>
-                                        <tr>
-                                            <td>
-                                                <img
-                                                    src="<%= member.profilePicture %>"
-                                                    alt="Profile"
-                                                    class="rounded-circle"
-                                                    width="45"
-                                                    height="45"
-                                                    style="object-fit: cover;"
-                                                >
-                                            </td>
-
-                                            <td>
-                                                <%= member.name %>
-                                            </td>
-
-                                            <td>
-                                                <%= member.email %>
-                                            </td>
-
-                                            <td>
-                                                <span
-                                                    class="badge <%= member.role === 'Project Leader' ? 'text-bg-primary' : 'text-bg-secondary' %>"
-                                                >
-                                                    <%= member.role %>
-                                                </span>
-                                            </td>
-
-                                            <td>
-                                                <%= member.diploma || "-" %>
-                                            </td>
-
-                                            <td>
-                                                <%= member.yearSemester || "-" %>
-                                            </td>
-
-                                            <td class="member-bio">
-                                                <%= member.bio || "-" %>
-                                            </td>
-
-                                            <td>
-                                                <% if (member.role !== "Project Leader") { %>
-
-                                                    <form
-                                                        action="/project-members/<%= member.userId %>/make-leader"
-                                                        method="POST"
-                                                        class="mb-2"
-                                                        onsubmit="return confirm('Transfer the Project Leader role to this member?');"
-                                                    >
-                                                        <button
-                                                            type="submit"
-                                                            class="btn btn-sm btn-outline-primary"
-                                                        >
-                                                            Make Leader
-                                                        </button>
-                                                    </form>
-
-                                                    <form
-                                                        action="/project-members/<%= member.userId %>/remove"
-                                                        method="POST"
-                                                        onsubmit="return confirm('Remove this member from the selected project?');"
-                                                    >
-                                                        <button
-                                                            type="submit"
-                                                            class="btn btn-sm btn-outline-danger"
-                                                        >
-                                                            Remove
-                                                        </button>
-                                                    </form>
-
-                                                <% } else { %>
-                                                    <span class="small text-muted">
-                                                        Current leader
-                                                    </span>
-                                                <% } %>
-                                            </td>
-                                        </tr>
-                                    <% }); %>
-                                </tbody>
-                            </table>
-                        </div>
-
-                    </div>
-                </div>
-
-            </main>
-        </div>
-    </div>
-
-    <div
-        class="modal fade"
-        id="addMemberModal"
-        tabindex="-1"
-        aria-hidden="true"
-    >
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-
-                <form
-                    action="/project-members/add"
-                    method="POST"
-                >
-                    <div class="modal-header">
-                        <h2 class="modal-title fs-5">
-                            Add Project Member
-                        </h2>
-
-                        <button
-                            type="button"
-                            class="btn-close"
-                            data-bs-dismiss="modal"
-                            aria-label="Close"
-                        ></button>
-                    </div>
-
-                    <div class="modal-body">
-                        <div class="row g-3">
-
-                            <div class="col-md-6">
-                                <label for="name" class="form-label">
-                                    Name
-                                </label>
-
-                                <input
-                                    type="text"
-                                    class="form-control"
-                                    id="name"
-                                    name="name"
-                                    required
-                                >
-                            </div>
-
-                            <div class="col-md-6">
-                                <label for="email" class="form-label">
-                                    Email
-                                </label>
-
-                                <input
-                                    type="email"
-                                    class="form-control"
-                                    id="email"
-                                    name="email"
-                                    required
-                                >
-                            </div>
-
-                            <div class="col-md-6">
-                                <label for="diploma" class="form-label">
-                                    Diploma
-                                </label>
-
-                                <select
-                                    class="form-select"
-                                    id="diploma"
-                                    name="diploma"
-                                >
-                                    <option value="">
-                                        Select a diploma
-                                    </option>
-
-                                    <% diplomaOptions.forEach(function (diploma) { %>
-                                        <option value="<%= diploma %>">
-                                            <%= diploma %>
-                                        </option>
-                                    <% }); %>
-                                </select>
-                            </div>
-
-                            <div class="col-md-6">
-                                <label
-                                    for="yearSemester"
-                                    class="form-label"
-                                >
-                                    Year and Semester
-                                </label>
-
-                                <select
-                                    class="form-select"
-                                    id="yearSemester"
-                                    name="yearSemester"
-                                >
-                                    <option value="">
-                                        Select year and semester
-                                    </option>
-
-                                    <% yearSemesterOptions.forEach(function (option) { %>
-                                        <option value="<%= option %>">
-                                            <%= option %>
-                                        </option>
-                                    <% }); %>
-                                </select>
-                            </div>
-
-                            <div class="col-12">
-                                <label for="bio" class="form-label">
-                                    Bio
-                                </label>
-
-                                <textarea
-                                    class="form-control"
-                                    id="bio"
-                                    name="bio"
-                                    rows="3"
-                                    maxlength="500"
-                                ></textarea>
-                            </div>
-
-                        </div>
-                    </div>
-
-                    <div class="modal-footer">
-                        <button
-                            type="button"
-                            class="btn btn-outline-secondary"
-                            data-bs-dismiss="modal"
-                        >
-                            Cancel
-                        </button>
-
-                        <button
-                            type="submit"
-                            class="btn btn-primary"
-                        >
-                            Add Member
-                        </button>
-                    </div>
-                </form>
-
+                <% if (currentProjectRole === "Project Leader") { %>
+                    <a href="/dashboard" class="btn btn-primary">Add Member from Dashboard</a>
+                <% } %>
             </div>
-        </div>
-    </div>
 
+            <% if (members.length === 0) { %>
+                <div class="alert alert-info">No members were found for this project.</div>
+            <% } else { %>
+                <div class="row g-4">
+                    <% members.forEach(function (member) { %>
+                        <div class="col-md-6 col-xl-4">
+                            <article class="card h-100">
+                                <div class="card-body text-center p-4">
+                                    <img src="<%= member.profilePicture || '/images/profile-pictures/default-profile.svg' %>" alt="<%= member.name %>" class="rounded-circle border shadow-sm mb-3" width="88" height="88" style="object-fit: cover;">
+                                    <h2 class="h5 mb-1"><%= member.name %></h2>
+                                    <p class="text-muted small mb-2">@<%= member.username %></p>
+                                    <span class="badge <%= member.role === 'Project Leader' ? 'text-bg-primary' : 'text-bg-secondary' %>"><%= member.role %></span>
+                                    <hr>
+                                    <p class="small mb-1"><strong>Email:</strong> <%= member.email %></p>
+                                    <p class="small mb-1"><strong>Diploma:</strong> <%= member.diploma || '-' %></p>
+                                    <p class="small mb-2"><strong>Year/Semester:</strong> <%= member.yearSemester || '-' %></p>
+                                    <p class="text-muted small mb-0"><%= member.bio || 'No bio added.' %></p>
+                                </div>
+                            </article>
+                        </div>
+                    <% }); %>
+                </div>
+            <% } %>
+        </main>
+    </div></div>
     <%- include("partials/footer") %>
-
-    <script
-        src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
