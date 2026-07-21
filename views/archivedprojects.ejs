@@ -102,6 +102,7 @@
                                         <button type="submit" class="btn btn-success">Restore Project</button>
                                     </form>
                                     <form action="/deleteproject/<%= project.projectId %>" method="POST">
+                                        <input type="hidden" name="returnPage" value="archivedprojects">
                                         <button type="submit" class="btn btn-danger" onclick="return confirm('Permanently delete this project?');">Delete Project</button>
                                     </form>
                                 </div>

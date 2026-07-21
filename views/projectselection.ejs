@@ -75,6 +75,10 @@
                                         <form action="/archiveproject/<%= project.projectId %>" method="POST">
                                             <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Archive this project?');">Archive</button>
                                         </form>
+                                        <form action="/deleteproject/<%= project.projectId %>" method="POST">
+                                            <input type="hidden" name="returnPage" value="projects">
+                                            <button type="submit" class="btn btn-danger" onclick="return confirm('Permanently delete this project and all its data?');">Delete</button>
+                                        </form>
                                     <% } %>
                                 </div>
                             </div>

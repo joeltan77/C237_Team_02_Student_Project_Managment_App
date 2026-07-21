@@ -53,7 +53,7 @@
                                 <div class="card-body">
                                     <h2 class="h5 mb-2"><%= achievement.label %></h2>
                                     <small class="text-muted">
-                                        Earned <%= new Date(achievement.earnedAt).toLocaleDateString("en-SG") %>
+                                        <%= achievement.earnedAtText ? "Earned " + achievement.earnedAtText : "Earned time unavailable" %>
                                     </small>
                                 </div>
                             </div>

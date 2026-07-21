@@ -424,11 +424,12 @@ app.get("/archivedprojects", requireLogin, function (req, res, next) {
 
 app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
     const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
-    const checkSql = `SELECT 1 FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND p.status = 'Archived' AND pm.user_id = ? AND pm.role = 'Project Leader'`;
+    const returnPage = req.body.returnPage === "projects" ? "/projects" : "/archivedprojects";
+    const checkSql = `SELECT 1 FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
 
     db.query(checkSql, [projectId, userId], function (error, rows) {
         if (error) return next(error);
-        if (!rows[0]) { req.flash("error", "Only the Project Leader can delete this archived project."); return res.redirect("/archivedprojects"); }
+        if (!rows[0]) { req.flash("error", "Only the Project Leader can delete this project."); return res.redirect(returnPage); }
 
         db.beginTransaction(transactionError => {
             if (transactionError) return next(transactionError);
@@ -438,8 +439,9 @@ app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
                     if (deleteError) return db.rollback(() => next(deleteError));
                     db.commit(commitError => {
                         if (commitError) return db.rollback(() => next(commitError));
+                        if (req.session.selectedProjectId === projectId) req.session.selectedProjectId = null;
                         req.flash("success", "Project deleted successfully.");
-                        res.redirect("/archivedprojects");
+                        res.redirect(returnPage);
                     });
                 });
             });
@@ -823,11 +825,9 @@ const achievementLabels = {
 };
 
 function grantAchievement(userId, achievementType) {
-    db.query(`SELECT achievement_id FROM achievements WHERE user_id = ? AND achievement_type = ? LIMIT 1`, [userId, achievementType], (error, rows) => {
-        if (error || rows.length > 0) return;
-        db.query(`INSERT INTO achievements (user_id, achievement_type) VALUES (?, ?)`, [userId, achievementType], insertError => {
-            if (insertError) console.error("Achievement insert error:", insertError.message);
-        });
+    const sql = `INSERT IGNORE INTO achievements (user_id, achievement_type, earned_at) VALUES (?, ?, NOW())`;
+    db.query(sql, [userId, achievementType], error => {
+        if (error) console.error("Achievement insert error:", error.message);
     });
 }
 
@@ -854,7 +854,8 @@ function checkAchievements(userId) {
 
 app.get("/achievements", requireLogin, (req, res, next) => {
     const userId = res.locals.currentUser.userId;
-    db.query(`SELECT achievement_id AS achievementId, achievement_type AS achievementType, earned_at AS earnedAt FROM achievements WHERE user_id = ? ORDER BY earned_at DESC`, [userId], (error, rows) => {
+    const sql = `SELECT achievement_id AS achievementId, achievement_type AS achievementType, DATE_FORMAT(DATE_ADD(earned_at, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS earnedAtText FROM achievements WHERE user_id = ? ORDER BY earned_at DESC`;
+    db.query(sql, [userId], (error, rows) => {
         if (error) return next(error);
         const achievements = rows.map(row => ({ ...row, label: achievementLabels[row.achievementType] || row.achievementType }));
         res.render("achievements", { achievements });
