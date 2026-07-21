@@ -27,9 +27,7 @@ app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static("resources/public"));
-
-// Support the original stylesheet URLs used by the existing EJS pages.
-app.use(express.static("resources"));
+// Stylesheets use /resources/... while public images use /images/...
 app.use("/resources", express.static("resources"));
 
 app.use(session({
@@ -901,7 +899,7 @@ app.post("/meetings/:id/attendance", requireLogin, requireSelectedProject, requi
 });
 
 // =====================================================
-// CALENDAR, TIMELINE, NOTIFICATIONS, REMINDERS
+// CALENDAR, TIMELINE AND NOTIFICATIONS
 // =====================================================
 app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId;
@@ -966,21 +964,6 @@ app.get("/notifications", requireLogin, requireSelectedProject, (req, res, next)
         if (error) return next(error);
         const notifications = rows.map(row => ({ title: "Project Activity", message: row.description, time: row.time }));
         res.render("notification", { notifications });
-    });
-});
-
-app.get("/reminders", requireLogin, requireSelectedProject, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId;
-    const taskSql = `SELECT task_name AS taskName, priority, DATE_FORMAT(due_date, '%d %b %Y') AS dueDate FROM tasks WHERE project_id = ? AND status <> 'Completed' AND due_date >= CURDATE() ORDER BY due_date`;
-    db.query(taskSql, [projectId], (taskError, tasks) => {
-        if (taskError) return next(taskError);
-        const meetingSql = `SELECT meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%d %b %Y') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime FROM meetings WHERE project_id = ? AND meeting_date >= CURDATE() ORDER BY meeting_date`;
-        db.query(meetingSql, [projectId], (meetingError, meetings) => {
-            if (meetingError) return next(meetingError);
-            const reminders = tasks.map(task => ({ title: task.taskName, message: "Due " + task.dueDate + " • " + task.priority + " priority", type: "task" }))
-                .concat(meetings.map(meeting => ({ title: meeting.meetingTitle, message: meeting.meetingDate + " at " + meeting.meetingTime, type: "meeting" })));
-            res.render("reminders", { reminders });
-        });
     });
 });
 
