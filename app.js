@@ -107,12 +107,12 @@ const isValidBucket = bucketType => ["went_well", "improvement", "thanks"].inclu
 // DATABASE HELPERS
 // =====================================================
 function getUserById(userId, callback) {
-    const sql = `SELECT user_id AS userId, username, password, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE user_id = ? LIMIT 1`;
+    const sql = `SELECT user_id AS userId, username, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE user_id = ? LIMIT 1`;
     db.query(sql, [userId], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
 function getUserByEmail(email, callback) {
-    const sql = `SELECT user_id AS userId, username, password, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`;
+    const sql = `SELECT user_id AS userId, username, name, email, contact_number AS contactNumber, diploma, year_semester AS yearSemester, bio, profile_picture AS profilePicture FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`;
     db.query(sql, [email], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
@@ -188,14 +188,55 @@ app.get("/login", (req, res) => res.locals.currentUser ? res.redirect("/projects
 
 app.post("/login", (req, res, next) => {
     const username = cleanText(req.body.username), password = String(req.body.password || "");
-    const sql = `SELECT user_id AS userId, username, password, name FROM users WHERE LOWER(username) = LOWER(?) AND password = ? LIMIT 1`;
-    db.query(sql, [username, password], (error, results) => {
+    const sql = `
+        SELECT user_id AS userId, name,
+               password = SHA2(?, 256) AS passwordMatches,
+               failed_attempts AS failedAttempts,
+               lockout_level AS lockoutLevel,
+               locked_until > NOW() AS isLocked,
+               GREATEST(TIMESTAMPDIFF(SECOND, NOW(), locked_until), 0) AS lockSeconds
+        FROM users
+        WHERE LOWER(username) = LOWER(?)
+        LIMIT 1
+    `;
+    db.query(sql, [password, username], (error, results) => {
         if (error) return next(error);
-        if (!results[0]) { req.flash("error", "The username or password is incorrect."); return res.redirect("/login"); }
-        req.session.userId = results[0].userId;
-        req.session.selectedProjectId = null;
-        req.flash("success", "Welcome, " + results[0].name + ".");
-        res.redirect("/projects");
+        const user = results[0];
+        if (!user) { req.flash("error", "The username or password is incorrect."); return res.redirect("/login"); }
+
+        if (user.isLocked) {
+            const minutes = Math.max(1, Math.ceil(user.lockSeconds / 60));
+            req.flash("error", "Your account is locked. Try again in about " + minutes + " minute(s).");
+            return res.redirect("/login");
+        }
+
+        if (!user.passwordMatches) {
+            const failedAttempts = user.failedAttempts + 1;
+            // First lock: after 3 failures. After that lock expires, one more failure locks for 1 day.
+            if (failedAttempts >= 3 || user.lockoutLevel > 0) {
+                const lockMinutes = user.lockoutLevel === 0 ? 5 : 1440;
+                const updateSql = `UPDATE users SET failed_attempts = 0, locked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE), lockout_level = lockout_level + 1 WHERE user_id = ?`;
+                return db.query(updateSql, [lockMinutes, user.userId], updateError => {
+                    if (updateError) return next(updateError);
+                    req.flash("error", lockMinutes === 5 ? "Too many failed attempts. Your account is locked for 5 minutes." : "Too many failed attempts. Your account is locked for 1 day.");
+                    res.redirect("/login");
+                });
+            }
+
+            return db.query(`UPDATE users SET failed_attempts = ? WHERE user_id = ?`, [failedAttempts, user.userId], updateError => {
+                if (updateError) return next(updateError);
+                req.flash("error", "The username or password is incorrect. " + (3 - failedAttempts) + " attempt(s) remaining.");
+                res.redirect("/login");
+            });
+        }
+
+        db.query(`UPDATE users SET failed_attempts = 0, locked_until = NULL, lockout_level = 0 WHERE user_id = ?`, [user.userId], updateError => {
+            if (updateError) return next(updateError);
+            req.session.userId = user.userId;
+            req.session.selectedProjectId = null;
+            req.flash("success", "Welcome, " + user.name + ".");
+            res.redirect("/projects");
+        });
     });
 });
 
@@ -237,7 +278,7 @@ app.post("/register", uploadProfilePicture.single("profilePicture"), (req, res, 
             const profilePicture = req.file ? "/images/profile-pictures/" + req.file.filename : "/images/profile-pictures/default-profile.svg";
             const values = [username, password, name, email, contactNumber, diploma, yearSemester, bio, profilePicture];
 
-            db.query(`INSERT INTO users (username, password, name, email, contact_number, diploma, year_semester, bio, profile_picture) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, values, insertError => {
+            db.query(`INSERT INTO users (username, password, name, email, contact_number, diploma, year_semester, bio, profile_picture) VALUES (?, SHA2(?, 256), ?, ?, ?, ?, ?, ?, ?)`, values, insertError => {
                 if (insertError) return next(insertError);
                 req.flash("success", "Your account has been created. Please log in.");
                 res.redirect("/login");
@@ -381,21 +422,38 @@ app.get("/archivedprojects", requireLogin, function (req, res, next) {
     });
 });
 
-app.post("/deleteproject/:id", requireLogin, requireProjectLeader, function (req, res, next) {
-    const projectId = req.params.id;
-    const DeleteProject = "DELETE FROM projects WHERE project_id = ?";
-    db.query(DeleteProject, [projectId], function (error, result) {
+app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
+    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const checkSql = `SELECT 1 FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND p.status = 'Archived' AND pm.user_id = ? AND pm.role = 'Project Leader'`;
+
+    db.query(checkSql, [projectId, userId], function (error, rows) {
         if (error) return next(error);
-        res.redirect("/projects");
+        if (!rows[0]) { req.flash("error", "Only the Project Leader can delete this archived project."); return res.redirect("/archivedprojects"); }
+
+        db.beginTransaction(transactionError => {
+            if (transactionError) return next(transactionError);
+            db.query(`DELETE FROM resources WHERE project_id = ?`, [projectId], resourceError => {
+                if (resourceError) return db.rollback(() => next(resourceError));
+                db.query(`DELETE FROM projects WHERE project_id = ?`, [projectId], deleteError => {
+                    if (deleteError) return db.rollback(() => next(deleteError));
+                    db.commit(commitError => {
+                        if (commitError) return db.rollback(() => next(commitError));
+                        req.flash("success", "Project deleted successfully.");
+                        res.redirect("/archivedprojects");
+                    });
+                });
+            });
+        });
     });
 });
 
-app.post("/restoreproject/:id", requireLogin, requireProjectLeader, function (req, res, next) {
-    const projectId = req.params.id;
-    const RestoreProject = "UPDATE projects SET status = 'Active' WHERE project_id = ?";
-    db.query(RestoreProject, [projectId], function (error, result) {
+app.post("/restoreproject/:id", requireLogin, function (req, res, next) {
+    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const sql = `UPDATE projects p INNER JOIN project_members pm ON p.project_id = pm.project_id SET p.status = 'Active' WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
+    db.query(sql, [projectId, userId], function (error, result) {
         if (error) return next(error);
-        res.redirect("/projects");
+        req.flash(result.affectedRows ? "success" : "error", result.affectedRows ? "Project restored successfully." : "Only the Project Leader can restore this project.");
+        res.redirect(result.affectedRows ? "/projects" : "/archivedprojects");
     });
 });
 
@@ -528,12 +586,15 @@ app.get("/profile/change-password", requireLogin, (req, res) => res.render("chan
 app.post("/profile/change-password", requireLogin, (req, res, next) => {
     const cur = res.locals.currentUser, oldP = String(req.body.currentPassword || ""), newP = String(req.body.newPassword || ""), confP = String(req.body.confirmPassword || "");
     if (!oldP || !newP || !confP) { req.flash("error", "Please complete every password field."); return res.redirect("/profile/change-password"); }
-    if (oldP !== cur.password) { req.flash("error", "The current password is incorrect."); return res.redirect("/profile/change-password"); }
     if (newP.length < 8) { req.flash("error", "The new password must contain at least eight characters."); return res.redirect("/profile/change-password"); }
     if (newP !== confP) { req.flash("error", "The new passwords do not match."); return res.redirect("/profile/change-password"); }
     if (newP === oldP) { req.flash("error", "The new password must be different from the current password."); return res.redirect("/profile/change-password"); }
 
-    db.query(`UPDATE users SET password = ? WHERE user_id = ?`, [newP, cur.userId], error => error ? next(error) : (req.flash("success", "Your password has been changed."), res.redirect("/profile")));
+    db.query(`SELECT password = SHA2(?, 256) AS passwordMatches FROM users WHERE user_id = ?`, [oldP, cur.userId], (error, rows) => {
+        if (error) return next(error);
+        if (!rows[0] || !rows[0].passwordMatches) { req.flash("error", "The current password is incorrect."); return res.redirect("/profile/change-password"); }
+        db.query(`UPDATE users SET password = SHA2(?, 256) WHERE user_id = ?`, [newP, cur.userId], updateError => updateError ? next(updateError) : (req.flash("success", "Your password has been changed."), res.redirect("/profile")));
+    });
 });
 
 // =====================================================
@@ -879,48 +940,6 @@ app.post("/resources/:id/delete", requireLogin, requireSelectedProject, (req, re
     });
 });
 
-// =====================================================
-// MEETING ATTENDANCE
-// =====================================================
-app.get("/meetings/:id/attendance", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId;
-    getMeetingById(req.params.id, projectId, (meetingError, meeting) => {
-        if (meetingError) return next(meetingError);
-        if (!meeting) { req.flash("error", "Meeting not found in the selected project."); return res.redirect("/meetings"); }
-
-        getProjectMembers(projectId, (memberError, members) => {
-            if (memberError) return next(memberError);
-            db.query(`SELECT user_id AS userId, status FROM attendance WHERE meeting_id = ?`, [meeting.meetingId], (attendanceError, existingRows) => {
-                if (attendanceError) return next(attendanceError);
-                const existingByUser = {};
-                existingRows.forEach(row => { existingByUser[row.userId] = row.status; });
-                const membersWithStatus = members.map(member => ({ ...member, attendanceStatus: existingByUser[member.userId] || "Present" }));
-                res.render("attendance", { meeting, members: membersWithStatus });
-            });
-        });
-    });
-});
-
-app.post("/meetings/:id/attendance", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId;
-    getMeetingById(req.params.id, projectId, (meetingError, meeting) => {
-        if (meetingError) return next(meetingError);
-        if (!meeting) { req.flash("error", "Meeting not found in the selected project."); return res.redirect("/meetings"); }
-
-        getProjectMembers(projectId, (memberError, members) => {
-            if (memberError) return next(memberError);
-
-            const saveNext = index => {
-                if (index >= members.length) { req.flash("success", "Attendance saved."); return res.redirect("/meetings/" + meeting.meetingId); }
-                const member = members[index];
-                const submitted = req.body["attendance_" + member.userId];
-                const status = ["Present", "Late", "Absent"].includes(submitted) ? submitted : "Present";
-                db.query(`INSERT INTO attendance (meeting_id, user_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status)`, [meeting.meetingId, member.userId, status], upsertError => upsertError ? next(upsertError) : saveNext(index + 1));
-            };
-            saveNext(0);
-        });
-    });
-});
 
 // =====================================================
 // CALENDAR, TIMELINE AND NOTIFICATIONS

@@ -96,14 +96,16 @@
                                 </button>
                             </form>
                             <br>
-                            <div>
-                                <form action="/restoreproject/<%= project.projectId %>" method="POST" style="display:inline;">
-                                    <button type="submit" class="btn btn-success">Restore Project</button>
-                                </form>
-                                <form action="/deleteproject/<%= project.projectId %>" method="POST" style="display:inline;">
-                                    <button type="submit" class="btn btn-danger"onclick="return confirm('Are you sure you want to delete this project?');">Delete Project</button>
-                                </form>
-                            </div>
+                            <% if (project.role === "Project Leader") { %>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <form action="/restoreproject/<%= project.projectId %>" method="POST">
+                                        <button type="submit" class="btn btn-success">Restore Project</button>
+                                    </form>
+                                    <form action="/deleteproject/<%= project.projectId %>" method="POST">
+                                        <button type="submit" class="btn btn-danger" onclick="return confirm('Permanently delete this project?');">Delete Project</button>
+                                    </form>
+                                </div>
+                            <% } %>
                         </div>
                     </div>
                 </div>
