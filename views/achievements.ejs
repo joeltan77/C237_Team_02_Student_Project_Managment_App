@@ -34,7 +34,7 @@
                         My Achievements
                     </h1>
                     <p class="text-muted mb-0">
-                        Badges you have earned by completing tasks.
+                        Badges earned by <%= currentUser.name %> from tasks assigned to this account.
                     </p>
                 </div>
 
@@ -42,7 +42,12 @@
                     <% if (achievements.length === 0) { %>
                         <div class="col-12">
                             <div class="alert alert-light border">
-                                No achievements yet. Complete tasks to earn badges.
+                                <p class="mb-1">No achievements yet.</p>
+                                <p class="mb-0">
+                                    This account has <strong><%= completedTaskCount %></strong>
+                                    completed assigned task<%= completedTaskCount == 1 ? "" : "s" %>.
+                                    A task must be assigned to you before its badge is awarded to you.
+                                </p>
                             </div>
                         </div>
                     <% } %>

@@ -698,7 +698,13 @@ app.post("/addtask", requireLogin, requireSelectedProject, (req, res, next) => {
         const values = [projectId, taskName, description, assignedUserId, res.locals.currentUser.userId, priority, status, dueDate];
         db.query(`INSERT INTO tasks (project_id, task_name, description, assigned_user_id, created_by_user_id, priority, status, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, values, insertError => {
             if (insertError) return next(insertError);
-            addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' added the task "' + taskName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Task added successfully."), res.redirect("/tasks")));
+
+            function finishAddingTask() {
+                addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' added the task "' + taskName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Task added successfully."), res.redirect("/tasks")));
+            }
+
+            if (status !== "Completed") return finishAddingTask();
+            checkAchievements(assignedUserId, achievementError => achievementError ? next(achievementError) : finishAddingTask());
         });
     });
 });
@@ -757,8 +763,13 @@ app.post("/tasks/:id/edit", requireLogin, requireSelectedProject, (req, res, nex
             const values = [taskName, description, assignedUserId, priority, status, dueDate, taskId, projectId];
             db.query(`UPDATE tasks SET task_name = ?, description = ?, assigned_user_id = ?, priority = ?, status = ?, due_date = ? WHERE task_id = ? AND project_id = ?`, values, updateError => {
                 if (updateError) return next(updateError);
-                if (status === "Completed") checkAchievements(assignedUserId);
-                addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' updated the task "' + taskName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Task updated successfully."), res.redirect("/tasks/" + taskId)));
+
+                function finishUpdatingTask() {
+                    addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + ' updated the task "' + taskName + '".', activityError => activityError ? next(activityError) : (req.flash("success", "Task updated successfully."), res.redirect("/tasks/" + taskId)));
+                }
+
+                if (status !== "Completed") return finishUpdatingTask();
+                checkAchievements(assignedUserId, achievementError => achievementError ? next(achievementError) : finishUpdatingTask());
             });
         });
     });
@@ -911,7 +922,7 @@ function checkAchievements(userId, callback = () => {}) {
         if (totalCount > 0 && (stats.overdueCount || 0) == 0) earnedTypes.push("no_overdue_tasks");
         if (earnedTypes.length === 0) return callback();
 
-        const placeholders = earnedTypes.map(() => "(?, ?, NOW())").join(", ");
+        const placeholders = earnedTypes.map(() => "(?, ?, UTC_TIMESTAMP())").join(", ");
         const values = earnedTypes.flatMap(type => [userId, type]);
         db.query(`INSERT IGNORE INTO achievements (user_id, achievement_type, earned_at) VALUES ${placeholders}`, values, callback);
     });
@@ -925,7 +936,14 @@ app.get("/achievements", requireLogin, (req, res, next) => {
         db.query(sql, [userId], (error, rows) => {
             if (error) return next(error);
             const achievements = rows.map(row => ({ ...row, label: achievementLabels[row.achievementType] || row.achievementType }));
-            res.render("achievements", { achievements });
+            const completedSql = `SELECT COUNT(*) AS completedTaskCount FROM tasks WHERE assigned_user_id = ? AND status = 'Completed'`;
+            db.query(completedSql, [userId], (countError, countRows) => {
+                if (countError) return next(countError);
+                res.render("achievements", {
+                    achievements,
+                    completedTaskCount: countRows[0].completedTaskCount || 0
+                });
+            });
         });
     });
 });
