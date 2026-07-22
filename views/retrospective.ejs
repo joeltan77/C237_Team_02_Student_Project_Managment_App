@@ -47,7 +47,7 @@
                                     <% } %>
 
                                     <% bucket.items.forEach(function (item) { %>
-                                        <% const canManage = currentProjectRole === "Project Leader" || Number(item.userId) === Number(currentUser.userId); %>
+                                        <% const canManage = currentProjectRole === "Project Leader" || item.userId == currentUser.userId; %>
                                         <article class="card bg-light mb-3">
                                             <div class="card-body">
                                                 <p class="mb-2"><%= item.content %></p>

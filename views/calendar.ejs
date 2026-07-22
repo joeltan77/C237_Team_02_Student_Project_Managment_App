@@ -49,7 +49,7 @@
             let hideTimer = null;
 
             function escapeHtml(value) {
-                return String(value || "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character]));
+                return (value || "").replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[character]));
             }
 
             function popoverContent(event) {
@@ -64,7 +64,7 @@
                         </div>`;
                 }
                 return `<div class="small mb-2"><strong>Meeting</strong></div>
-                    <div class="small text-muted mb-3">Time: ${escapeHtml(details.time)}<br>Location: ${escapeHtml(details.location)}</div>
+                    <div class="small text-muted mb-3">Time: ${escapeHtml(details.timeText)}<br>Location: ${escapeHtml(details.location)}</div>
                     <a class="btn btn-sm btn-primary" href="/meetings/${details.meetingId}">View</a>`;
             }
 

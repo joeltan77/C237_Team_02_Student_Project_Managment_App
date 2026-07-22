@@ -102,7 +102,7 @@ const priorityOptions = ["Low", "Medium", "High"];
 const taskStatusOptions = ["Not Started", "In Progress", "Completed"];
 const bucketOptions = ["went_well", "improvement", "thanks"];
 
-const cleanText = value => String(value || "").trim();
+const cleanText = value => value ? value.trim() : "";
 const isValidPriority = priority => priorityOptions.includes(priority);
 const isValidTaskStatus = status => taskStatusOptions.includes(status);
 const isValidBucket = bucketType => bucketOptions.includes(bucketType);
@@ -173,7 +173,7 @@ function getTaskById(taskId, projectId, callback) {
 }
 
 function getMeetingById(meetingId, projectId, callback) {
-    const sql = `SELECT meeting_id AS meetingId, project_id AS projectId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location, agenda, created_by_user_id AS createdByUserId FROM meetings WHERE meeting_id = ? AND project_id = ? LIMIT 1`;
+    const sql = `SELECT meeting_id AS meetingId, project_id AS projectId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, TIME_FORMAT(meeting_time, '%h:%i %p SGT') AS meetingTimeText, location, agenda, created_by_user_id AS createdByUserId FROM meetings WHERE meeting_id = ? AND project_id = ? LIMIT 1`;
     db.query(sql, [meetingId, projectId], (error, results) => error ? callback(error) : callback(null, results[0] || null));
 }
 
@@ -245,14 +245,15 @@ app.get("/login", (req, res) => {
 });
 
 app.post("/login", (req, res, next) => {
-    const username = cleanText(req.body.username), password = String(req.body.password || "");
+    const username = cleanText(req.body.username), password = req.body.password || "";
     const sql = `
         SELECT user_id AS userId, name,
                password = SHA2(?, 256) AS passwordMatches,
                failed_attempts AS failedAttempts,
                lockout_level AS lockoutLevel,
-               locked_until > NOW() AS isLocked,
-               GREATEST(TIMESTAMPDIFF(SECOND, NOW(), locked_until), 0) AS lockSeconds
+               locked_until > UTC_TIMESTAMP() AS isLocked,
+               GREATEST(TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), locked_until), 0) AS lockSeconds,
+               DATE_FORMAT(DATE_ADD(locked_until, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS unlockTime
         FROM users
         WHERE LOWER(username) = LOWER(?)
         LIMIT 1
@@ -264,7 +265,7 @@ app.post("/login", (req, res, next) => {
 
         if (user.isLocked) {
             const minutes = Math.max(1, Math.ceil(user.lockSeconds / 60));
-            req.flash("error", "Your account is locked. Try again in about " + minutes + " minute(s).");
+            req.flash("error", "Your account is locked until " + user.unlockTime + " (about " + minutes + " minute(s) remaining).");
             return res.redirect("/login");
         }
 
@@ -273,7 +274,7 @@ app.post("/login", (req, res, next) => {
             // First lock: after 3 failures. After that lock expires, one more failure locks for 1 day.
             if (failedAttempts >= 3 || user.lockoutLevel > 0) {
                 const lockMinutes = user.lockoutLevel === 0 ? 5 : 1440;
-                const updateSql = `UPDATE users SET failed_attempts = 0, locked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE), lockout_level = lockout_level + 1 WHERE user_id = ?`;
+                const updateSql = `UPDATE users SET failed_attempts = 0, locked_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE), lockout_level = lockout_level + 1 WHERE user_id = ?`;
                 return db.query(updateSql, [lockMinutes, user.userId], updateError => {
                     if (updateError) return next(updateError);
                     req.flash("error", lockMinutes === 5 ? "Too many failed attempts. Your account is locked for 5 minutes." : "Too many failed attempts. Your account is locked for 1 day.");
@@ -321,7 +322,7 @@ app.get("/register", (req, res) => res.locals.currentUser ? res.redirect("/proje
 
 app.post("/register", uploadProfilePicture.single("profilePicture"), (req, res, next) => {
     const username = cleanText(req.body.username), name = cleanText(req.body.name), email = cleanText(req.body.email).toLowerCase();
-    const password = String(req.body.password || ""), confirmPassword = String(req.body.confirmPassword || "");
+    const password = req.body.password || "", confirmPassword = req.body.confirmPassword || "";
     const contactNumber = cleanText(req.body.contactNumber), diploma = cleanText(req.body.diploma), yearSemester = cleanText(req.body.yearSemester), bio = cleanText(req.body.bio);
 
     if (!username || !name || !email || !password || !confirmPassword || !diploma || !yearSemester) { req.flash("error", "Please complete every required field."); return res.redirect("/register"); }
@@ -365,7 +366,7 @@ app.get("/projects", requireLogin, function (req, res, next) {
 });
 
 app.post("/projects/select", requireLogin, function (req, res, next) {
-    const projectId = Number(req.body.projectId);
+    const projectId = req.body.projectId;
     const userId = res.locals.currentUser.userId;
 
     getProjectContext(projectId, userId, function (error, projectContext) {
@@ -417,7 +418,7 @@ app.post('/addproject', requireLogin, function (req, res, next) {
 });
 
 app.get('/editproject/:id', requireLogin, function (req, res, next) {
-    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const projectId = req.params.id, userId = res.locals.currentUser.userId;
     const sql = `SELECT p.project_id AS projectId, p.project_name AS projectName, p.description, DATE_FORMAT(p.endDate, '%Y-%m-%d') AS endDate FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
 
     db.query(sql, [projectId, userId], function (error, results) {
@@ -428,7 +429,7 @@ app.get('/editproject/:id', requireLogin, function (req, res, next) {
 });
 
 app.post('/editproject/:id', requireLogin, function (req, res, next) {
-    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const projectId = req.params.id, userId = res.locals.currentUser.userId;
     const name = cleanText(req.body.projectName), description = cleanText(req.body.description), endDate = cleanText(req.body.endDate);
     if (!name || !endDate) { req.flash("error", "Project name and due date are required."); return res.redirect("/editproject/" + projectId); }
 
@@ -442,10 +443,11 @@ app.post('/editproject/:id', requireLogin, function (req, res, next) {
 });
 
 app.post("/archiveproject/:id", requireLogin, function (req, res, next) {
-    const projectId = Number(req.params.id);
+    const projectId = req.params.id;
     const userId = res.locals.currentUser.userId;
 
-    if (!Number.isInteger(projectId) || projectId <= 0) {
+    // A project ID must be present in the URL.
+    if (!projectId) {
         req.flash("error", "Invalid project.");
         return res.redirect("/projects");
     }
@@ -465,7 +467,7 @@ app.post("/archiveproject/:id", requireLogin, function (req, res, next) {
             return res.redirect("/projects");
         }
 
-        if (req.session.selectedProjectId === projectId) {
+        if (req.session.selectedProjectId == projectId) {
             req.session.selectedProjectId = null;
         }
         req.flash("success", "Project archived successfully.");
@@ -487,7 +489,7 @@ app.get("/archivedprojects", requireLogin, function (req, res, next) {
 });
 
 app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
-    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const projectId = req.params.id, userId = res.locals.currentUser.userId;
     const returnPage = req.body.returnPage === "projects" ? "/projects" : "/archivedprojects";
     const checkSql = `SELECT 1 FROM projects p INNER JOIN project_members pm ON p.project_id = pm.project_id WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
 
@@ -514,7 +516,7 @@ app.post("/deleteproject/:id", requireLogin, function (req, res, next) {
 });
 
 app.post("/restoreproject/:id", requireLogin, function (req, res, next) {
-    const projectId = Number(req.params.id), userId = res.locals.currentUser.userId;
+    const projectId = req.params.id, userId = res.locals.currentUser.userId;
     const sql = `UPDATE projects p INNER JOIN project_members pm ON p.project_id = pm.project_id SET p.status = 'Active' WHERE p.project_id = ? AND pm.user_id = ? AND pm.role = 'Project Leader'`;
     db.query(sql, [projectId, userId], function (error, result) {
         if (error) return next(error);
@@ -535,9 +537,9 @@ app.get("/dashboard", requireLogin, requireSelectedProject, (req, res, next) => 
         if (summaryError) return next(summaryError);
 
         const s = summaryRows[0];
-        const total = Number(s.totalTasks || 0);
-        const comp = Number(s.completedTasks || 0);
-        const prog = Number(s.inProgressTasks || 0);
+        const total = s.totalTasks || 0;
+        const comp = s.completedTasks || 0;
+        const prog = s.inProgressTasks || 0;
 
         const completionPercentage = total > 0 ? Math.round((comp / total) * 100) : 0;
         const teamProductivity = total > 0 ? Math.round(((comp + prog * 0.5) / total) * 100) : 0;
@@ -552,12 +554,12 @@ app.get("/dashboard", requireLogin, requireSelectedProject, (req, res, next) => 
             db.query(deadlinesSql, [projectId], (deadlineError, upcomingDeadlines) => {
                 if (deadlineError) return next(deadlineError);
 
-                const activitySql = `SELECT activity_id AS activityId, description, created_at AS createdAt FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 5`;
+                const activitySql = `SELECT activity_id AS activityId, description, DATE_FORMAT(DATE_ADD(created_at, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS createdAtText FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 5`;
 
                 db.query(activitySql, [projectId], (activityError, recentActivities) => {
                     if (activityError) return next(activityError);
 
-                    const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location, agenda FROM meetings WHERE project_id = ? AND YEARWEEK(meeting_date, 1) = YEARWEEK(CURDATE(), 1) ORDER BY meeting_date, meeting_time`;
+                    const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%h:%i %p SGT') AS meetingTime, location, agenda FROM meetings WHERE project_id = ? AND YEARWEEK(meeting_date, 1) = YEARWEEK(CURDATE(), 1) ORDER BY meeting_date, meeting_time`;
 
                     db.query(meetingSql, [projectId], (meetingError, meetingsThisWeek) => {
                         if (meetingError) return next(meetingError);
@@ -566,7 +568,7 @@ app.get("/dashboard", requireLogin, requireSelectedProject, (req, res, next) => 
                         db.query(reminderTaskSql, [projectId], (reminderTaskError, reminderTasks) => {
                             if (reminderTaskError) return next(reminderTaskError);
 
-                            const reminderMeetingSql = `SELECT meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%d %b %Y') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime FROM meetings WHERE project_id = ? AND meeting_date >= CURDATE() ORDER BY meeting_date LIMIT 5`;
+                            const reminderMeetingSql = `SELECT meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%d %b %Y') AS meetingDate, TIME_FORMAT(meeting_time, '%h:%i %p SGT') AS meetingTime FROM meetings WHERE project_id = ? AND meeting_date >= CURDATE() ORDER BY meeting_date LIMIT 5`;
                             db.query(reminderMeetingSql, [projectId], (reminderMeetingError, reminderMeetings) => {
                                 if (reminderMeetingError) return next(reminderMeetingError);
 
@@ -609,7 +611,7 @@ app.get("/dashboard", requireLogin, requireSelectedProject, (req, res, next) => 
 // =====================================================
 app.post("/projects/:id/assignmember", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId;
-    const userId = Number(req.body.userId);
+    const userId = req.body.userId;
     const AssignMemberSql = "INSERT INTO project_members (project_id, user_id, role) VALUES (?, ?, 'Project Member')";
     db.query(AssignMemberSql, [projectId, userId], (error) => {
         if (error) return next(error);
@@ -650,7 +652,7 @@ app.post("/profile/edit", requireLogin, uploadProfilePicture.single("profilePict
 
 app.get("/profile/change-password", requireLogin, (req, res) => res.render("changepassword", { user: res.locals.currentUser }));
 app.post("/profile/change-password", requireLogin, (req, res, next) => {
-    const cur = res.locals.currentUser, oldP = String(req.body.currentPassword || ""), newP = String(req.body.newPassword || ""), confP = String(req.body.confirmPassword || "");
+    const cur = res.locals.currentUser, oldP = req.body.currentPassword || "", newP = req.body.newPassword || "", confP = req.body.confirmPassword || "";
     if (!oldP || !newP || !confP) { req.flash("error", "Please complete every password field."); return res.redirect("/profile/change-password"); }
     if (newP.length < 8) { req.flash("error", "The new password must contain at least eight characters."); return res.redirect("/profile/change-password"); }
     if (newP !== confP) { req.flash("error", "The new passwords do not match."); return res.redirect("/profile/change-password"); }
@@ -686,7 +688,7 @@ app.get("/addtask", requireLogin, requireSelectedProject, (req, res, next) => {
 
 app.post("/addtask", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId, taskName = cleanText(req.body.taskName), description = cleanText(req.body.description);
-    const assignedUserId = Number(req.body.assignedUserId), priority = cleanText(req.body.priority), status = cleanText(req.body.status), dueDate = cleanText(req.body.dueDate);
+    const assignedUserId = req.body.assignedUserId, priority = cleanText(req.body.priority), status = cleanText(req.body.status), dueDate = cleanText(req.body.dueDate);
 
     db.query(`SELECT user_id FROM project_members WHERE project_id = ? AND user_id = ? LIMIT 1`, [projectId, assignedUserId], (membershipError, membershipRows) => {
         if (membershipError) return next(membershipError);
@@ -706,7 +708,7 @@ app.get("/tasks/:id", requireLogin, requireSelectedProject, (req, res, next) => 
         if (error) return next(error);
         if (!task) { req.flash("error", "Task not found in the selected project."); return res.redirect("/tasks"); }
 
-        const commentSql = `SELECT c.comment_id AS commentId, c.comment, c.created_at AS createdAt, u.name AS userName FROM task_comments c INNER JOIN users u ON c.user_id = u.user_id WHERE c.task_id = ? ORDER BY c.created_at DESC`;
+        const commentSql = `SELECT c.comment_id AS commentId, c.comment, DATE_FORMAT(DATE_ADD(c.created_at, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS createdAtText, u.name AS userName FROM task_comments c INNER JOIN users u ON c.user_id = u.user_id WHERE c.task_id = ? ORDER BY c.created_at DESC`;
         db.query(commentSql, [task.taskId], (commentError, comments) => {
             if (commentError) return next(commentError);
             res.render("taskdetails", { task: task, assignedUser: task.assignedUserId ? { userId: task.assignedUserId, name: task.assignedUserName } : null, comments });
@@ -715,7 +717,7 @@ app.get("/tasks/:id", requireLogin, requireSelectedProject, (req, res, next) => 
 });
 
 app.post("/tasks/:id/comment", requireLogin, requireSelectedProject, (req, res, next) => {
-    const taskId = Number(req.params.id), comment = cleanText(req.body.comment);
+    const taskId = req.params.id, comment = cleanText(req.body.comment);
     if (!comment) { req.flash("error", "Comment cannot be empty."); return res.redirect("/tasks/" + taskId); }
 
     getTaskById(taskId, res.locals.selectedProject.projectId, (taskError, task) => {
@@ -740,8 +742,8 @@ app.get("/tasks/:id/edit", requireLogin, requireSelectedProject, (req, res, next
 });
 
 app.post("/tasks/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, taskId = Number(req.params.id), taskName = cleanText(req.body.taskName);
-    const assignedUserId = Number(req.body.assignedUserId), priority = cleanText(req.body.priority), status = cleanText(req.body.status), dueDate = cleanText(req.body.dueDate), description = cleanText(req.body.description);
+    const projectId = res.locals.selectedProject.projectId, taskId = req.params.id, taskName = cleanText(req.body.taskName);
+    const assignedUserId = req.body.assignedUserId, priority = cleanText(req.body.priority), status = cleanText(req.body.status), dueDate = cleanText(req.body.dueDate), description = cleanText(req.body.description);
 
     getTaskById(taskId, projectId, (taskError, task) => {
         if (taskError) return next(taskError);
@@ -766,7 +768,7 @@ app.post("/tasks/:id/edit", requireLogin, requireSelectedProject, (req, res, nex
 // MEETINGS
 // =====================================================
 app.get("/meetings", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location, agenda FROM meetings WHERE project_id = ? ORDER BY meeting_date, meeting_time`;
+    const sql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%h:%i %p SGT') AS meetingTime, location, agenda FROM meetings WHERE project_id = ? ORDER BY meeting_date, meeting_time`;
     db.query(sql, [res.locals.selectedProject.projectId], (error, projectMeetings) => error ? next(error) : res.render("meetings", { meetings: projectMeetings }));
 });
 
@@ -793,7 +795,7 @@ app.get("/meetings/:id/edit", requireLogin, requireSelectedProject, requireProje
 });
 
 app.post("/meetings/:id/edit", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, meetingId = Number(req.params.id), meetingTitle = cleanText(req.body.meetingTitle);
+    const projectId = res.locals.selectedProject.projectId, meetingId = req.params.id, meetingTitle = cleanText(req.body.meetingTitle);
     const meetingDate = cleanText(req.body.meetingDate), meetingTime = cleanText(req.body.meetingTime), location = cleanText(req.body.location), agenda = cleanText(req.body.agenda);
 
     getMeetingById(meetingId, projectId, (meetingError, meeting) => {
@@ -810,7 +812,7 @@ app.post("/meetings/:id/edit", requireLogin, requireSelectedProject, requireProj
 });
 
 app.post("/meetings/:id/delete", requireLogin, requireSelectedProject, requireProjectLeader, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, meetingId = Number(req.params.id);
+    const projectId = res.locals.selectedProject.projectId, meetingId = req.params.id;
     getMeetingById(meetingId, projectId, (meetingError, meeting) => {
         if (meetingError) return next(meetingError);
         if (!meeting) { req.flash("error", "Meeting not found in the selected project."); return res.redirect("/meetings"); }
@@ -848,7 +850,7 @@ app.post("/retrospective/add", requireLogin, requireSelectedProject, (req, res, 
 });
 
 app.post("/retrospective/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, retrospectiveId = Number(req.params.id);
+    const projectId = res.locals.selectedProject.projectId, retrospectiveId = req.params.id;
     getRetrospectiveById(retrospectiveId, projectId, (itemError, item) => {
         if (itemError) return next(itemError);
         if (!item) { req.flash("error", "Retrospective entry not found."); return res.redirect("/retrospective"); }
@@ -865,7 +867,7 @@ app.post("/retrospective/:id/edit", requireLogin, requireSelectedProject, (req, 
 });
 
 app.post("/retrospective/:id/delete", requireLogin, requireSelectedProject, (req, res, next) => {
-    const projectId = res.locals.selectedProject.projectId, retrospectiveId = Number(req.params.id);
+    const projectId = res.locals.selectedProject.projectId, retrospectiveId = req.params.id;
     getRetrospectiveById(retrospectiveId, projectId, (itemError, item) => {
         if (itemError) return next(itemError);
         if (!item) { req.flash("error", "Retrospective entry not found."); return res.redirect("/retrospective"); }
@@ -902,11 +904,11 @@ function checkAchievements(userId, callback = () => {}) {
     db.query(sql, [userId], (error, rows) => {
         if (error) return callback(error);
         const stats = rows[0], earnedTypes = [];
-        const totalCount = Number(stats.totalCount || 0), completedCount = Number(stats.completedCount || 0);
+        const totalCount = stats.totalCount || 0, completedCount = stats.completedCount || 0;
         if (completedCount >= 1) earnedTypes.push("first_task_completed");
         if (completedCount >= 5) earnedTypes.push("team_mvp");
-        if (Number(stats.earlyCount || 0) >= 1) earnedTypes.push("early_finisher");
-        if (totalCount > 0 && Number(stats.overdueCount || 0) === 0) earnedTypes.push("no_overdue_tasks");
+        if ((stats.earlyCount || 0) >= 1) earnedTypes.push("early_finisher");
+        if (totalCount > 0 && (stats.overdueCount || 0) == 0) earnedTypes.push("no_overdue_tasks");
         if (earnedTypes.length === 0) return callback();
 
         const placeholders = earnedTypes.map(() => "(?, ?, NOW())").join(", ");
@@ -965,7 +967,7 @@ app.post("/resources/upload", requireLogin, requireSelectedProject, uploadResour
 });
 
 app.get("/resources/:id/edit", requireLogin, requireSelectedProject, (req, res, next) => {
-    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
+    const resourceId = req.params.id, projectId = res.locals.selectedProject.projectId;
     db.query(`SELECT resources_id AS resourceId, resource_name AS resourceName, description, file_name AS fileName, file_type AS fileType FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
         if (error) return next(error);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
@@ -974,7 +976,7 @@ app.get("/resources/:id/edit", requireLogin, requireSelectedProject, (req, res, 
 });
 
 app.post("/resources/:id/edit", requireLogin, requireSelectedProject, uploadResource.single("resourceFile"), (req, res, next) => {
-    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId, resourceName = cleanText(req.body.resourceName), description = cleanText(req.body.description);
+    const resourceId = req.params.id, projectId = res.locals.selectedProject.projectId, resourceName = cleanText(req.body.resourceName), description = cleanText(req.body.description);
 
     db.query(`SELECT file_name AS fileName, file_type AS fileType FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (findError, rows) => {
         if (findError) return next(findError);
@@ -991,7 +993,7 @@ app.post("/resources/:id/edit", requireLogin, requireSelectedProject, uploadReso
 });
 
 app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, res, next) => {
-    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
+    const resourceId = req.params.id, projectId = res.locals.selectedProject.projectId;
     db.query(`SELECT file_name AS fileName FROM resources WHERE resources_id = ? AND project_id = ? LIMIT 1`, [resourceId, projectId], (error, rows) => {
         if (error) return next(error);
         if (rows.length === 0) { req.flash("error", "Resource not found."); return res.redirect("/resources"); }
@@ -1000,7 +1002,7 @@ app.get("/resources/:id/download", requireLogin, requireSelectedProject, (req, r
 });
 
 app.post("/resources/:id/delete", requireLogin, requireSelectedProject, (req, res, next) => {
-    const resourceId = Number(req.params.id), projectId = res.locals.selectedProject.projectId;
+    const resourceId = req.params.id, projectId = res.locals.selectedProject.projectId;
     db.query(`DELETE FROM resources WHERE resources_id = ? AND project_id = ?`, [resourceId, projectId], deleteError => {
         if (deleteError) return next(deleteError);
         addActivity(projectId, res.locals.currentUser.userId, res.locals.currentUser.name + " deleted a resource.", activityError => activityError ? next(activityError) : (req.flash("success", "Resource deleted."), res.redirect("/resources")));
@@ -1025,7 +1027,8 @@ app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
         const meetingSql = `
             SELECT meeting_id AS meetingId, meeting_title AS meetingTitle,
                    DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate,
-                   TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime, location
+                   TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime,
+                   TIME_FORMAT(meeting_time, '%h:%i %p SGT') AS meetingTimeText, location
             FROM meetings
             WHERE project_id = ?
         `;
@@ -1046,7 +1049,7 @@ app.get("/calendar", requireLogin, requireSelectedProject, (req, res, next) => {
                 start: meeting.meetingDate,
                 allDay: true,
                 color: "#6f42c1",
-                extendedProps: { type: "meeting", meetingId: meeting.meetingId, time: meeting.meetingTime, location: meeting.location || "Not specified" }
+                extendedProps: { type: "meeting", meetingId: meeting.meetingId, timeText: meeting.meetingTimeText, location: meeting.location || "Not specified" }
             }));
 
             const calendarEventsJson = JSON.stringify(taskEvents.concat(meetingEvents)).replace(/</g, "\\u003c");
@@ -1059,7 +1062,7 @@ app.get("/timeline", requireLogin, requireSelectedProject, (req, res, next) => {
     // Azure MySQL stores the activity time in UTC, so add 8 hours for Singapore.
     const sql = `
         SELECT description,
-               DATE_FORMAT(DATE_ADD(created_at, INTERVAL 8 HOUR), '%d %b %Y, %H:%i SGT') AS time
+               DATE_FORMAT(DATE_ADD(created_at, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS time
         FROM activities
         WHERE project_id = ?
         ORDER BY created_at DESC
@@ -1069,7 +1072,7 @@ app.get("/timeline", requireLogin, requireSelectedProject, (req, res, next) => {
 });
 
 app.get("/notifications", requireLogin, requireSelectedProject, (req, res, next) => {
-    const sql = `SELECT description, DATE_FORMAT(created_at, '%d %b %Y %H:%i') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 20`;
+    const sql = `SELECT description, DATE_FORMAT(DATE_ADD(created_at, INTERVAL 8 HOUR), '%d %b %Y, %h:%i %p SGT') AS time FROM activities WHERE project_id = ? ORDER BY created_at DESC LIMIT 20`;
     db.query(sql, [res.locals.selectedProject.projectId], (error, rows) => {
         if (error) return next(error);
         const notifications = rows.map(row => ({ title: "Project Activity", message: row.description, time: row.time }));
@@ -1090,7 +1093,7 @@ app.get("/search", requireLogin, requireSelectedProject, (req, res, next) => {
     const projectId = res.locals.selectedProject.projectId;
     const searchTerm = "%" + query + "%";
     const taskSql = `SELECT task_id AS taskId, task_name AS taskName, description, priority, status, DATE_FORMAT(due_date, '%Y-%m-%d') AS dueDate FROM tasks WHERE project_id = ? AND (task_name LIKE ? OR description LIKE ?) ORDER BY due_date`;
-    const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, agenda, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%H:%i') AS meetingTime FROM meetings WHERE project_id = ? AND (meeting_title LIKE ? OR agenda LIKE ?) ORDER BY meeting_date, meeting_time`;
+    const meetingSql = `SELECT meeting_id AS meetingId, meeting_title AS meetingTitle, agenda, DATE_FORMAT(meeting_date, '%Y-%m-%d') AS meetingDate, TIME_FORMAT(meeting_time, '%h:%i %p SGT') AS meetingTime FROM meetings WHERE project_id = ? AND (meeting_title LIKE ? OR agenda LIKE ?) ORDER BY meeting_date, meeting_time`;
 
     db.query(taskSql, [projectId, searchTerm, searchTerm], (taskError, tasks) => {
         if (taskError) return next(taskError);
@@ -1113,7 +1116,7 @@ app.use((error, req, res, next) => {
     }
     if (error.message === "Only JPG, PNG and WEBP images are allowed.") { req.flash("error", error.message); return res.redirect("/profile/edit"); }
     if (error.code === "ER_NO_SUCH_TABLE") {
-        const tableMatch = String(error.sqlMessage || error.message).match(/Table '[^']+\.([^']+)' doesn't exist/i);
+        const tableMatch = (error.sqlMessage || error.message || "").match(/Table '[^']+\.([^']+)' doesn't exist/i);
         const tableName = tableMatch ? tableMatch[1] : "unknown";
         return res.status(500).send(`Required database table '${tableName}' is missing. Run database_setup.sql, then restart the application.`);
     }

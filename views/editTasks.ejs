@@ -28,7 +28,7 @@
                         <label for="assignedUserId" class="form-label">Assigned Member</label>
                         <select id="assignedUserId" name="assignedUserId" class="form-select" required>
                             <% members.forEach(function (member) { %>
-                                <option value="<%= member.userId %>" <%= Number(task.assignedUserId) === Number(member.userId) ? "selected" : "" %>>
+                                <option value="<%= member.userId %>" <%= task.assignedUserId == member.userId ? "selected" : "" %>>
                                     <%= member.name %> - <%= member.role %>
                                 </option>
                             <% }); %>
